@@ -12,18 +12,16 @@ const JWT_SECRET = process.env.JWT_SECRET || 'aourum_secret_2026';
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// ─── Cloudinary Config ──────────────────────────────────────────────────────
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// ─── Multer: memoria (no escribe al disco) ───────────────────────────────────
 const storage = multer.memoryStorage();
 const upload = multer({
   storage,
-  limits: { fileSize: 8 * 1024 * 1024 }, // 8 MB max
+  limits: { fileSize: 8 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     if (file.mimetype.startsWith('image/')) {
       cb(null, true);
@@ -33,7 +31,6 @@ const upload = multer({
   },
 });
 
-// ─── Middleware ──────────────────────────────────────────────────────────────
 app.use(cors());
 app.use(express.json());
 
@@ -42,12 +39,10 @@ app.use((req, res, next) => {
   next();
 });
 
-// ─── Health check ────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
   res.json({ status: 'AOURUM API is running' });
 });
 
-// ─── Upload Route ────────────────────────────────────────────────────────────
 app.post('/api/upload', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
@@ -79,7 +74,6 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
   }
 });
 
-// ─── Products Routes ─────────────────────────────────────────────────────────
 app.get('/api/products', async (req, res) => {
   try {
     const products = await db.getProducts();
@@ -88,6 +82,19 @@ app.get('/api/products', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+app.get('/api/products/by-slug/:slug', async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const products = await db.getProducts();
+    const product = products.find(p => p.slug === slug);
+    if (!product) return res.status(404).json({ error: 'Producto no encontrado' });
+    res.json(product);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 
 app.post('/api/products', async (req, res) => {
   try {
@@ -145,7 +152,6 @@ app.delete('/api/products/:id', async (req, res) => {
   }
 });
 
-// ─── Fairs Routes ─────────────────────────────────────────────────────────────
 app.get('/api/fairs', async (req, res) => {
   try {
     const fairs = await db.getFairs();
@@ -178,7 +184,6 @@ app.post('/api/fairs', async (req, res) => {
   }
 });
 
-// ─── Bands Routes ─────────────────────────────────────────────────────────────
 app.get('/api/bands', async (req, res) => {
   try {
     const bands = await db.getBands();
@@ -209,7 +214,6 @@ app.post('/api/bands', async (req, res) => {
   }
 });
 
-// ─── Brands Routes ────────────────────────────────────────────────────────────
 app.get('/api/brands', async (req, res) => {
   try {
     const brands = await db.getBrands();
@@ -239,7 +243,6 @@ app.post('/api/brands', async (req, res) => {
   }
 });
 
-// ─── Organizers Routes ────────────────────────────────────────────────────────
 app.get('/api/organizers', async (req, res) => {
   try {
     const organizers = await db.getOrganizers();
@@ -268,7 +271,6 @@ app.post('/api/organizers', async (req, res) => {
   }
 });
 
-// PUT /api/bands/:id
 app.put('/api/bands/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -295,11 +297,10 @@ app.put('/api/bands/:id', async (req, res) => {
   }
 });
 
-// PUT /api/brands/:id
 app.put('/api/brands/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, owner, category, description, logo, slug } = req.body;
+    const { name, owner, category, description, logo, slug, whatsappNumber } = req.body;
     if (!name || !owner || !category) {
       return res.status(400).json({ error: 'Faltan campos requeridos (nombre, dueño, categoría)' });
     }
@@ -314,7 +315,7 @@ app.put('/api/brands/:id', async (req, res) => {
         return res.status(409).json({ error: 'El identificador de URL (slug) ya está en uso.' });
       }
     }
-    const updated = await db.updateBrand(id, { name, owner, category, description, logo, slug: cleanSlug });
+    const updated = await db.updateBrand(id, { name, owner, category, description, logo, slug: cleanSlug, whatsappNumber });
     if (!updated) return res.status(404).json({ error: 'Marca no encontrada' });
     res.json(updated);
   } catch (error) {
@@ -322,7 +323,6 @@ app.put('/api/brands/:id', async (req, res) => {
   }
 });
 
-// PUT /api/organizers/:id
 app.put('/api/organizers/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -338,7 +338,6 @@ app.put('/api/organizers/:id', async (req, res) => {
   }
 });
 
-// ─── People Routes ────────────────────────────────────────────────────────────
 app.get('/api/people', async (req, res) => {
   try {
     const people = await db.getPeople();
@@ -406,7 +405,6 @@ app.put('/api/people/:id', async (req, res) => {
   }
 });
 
-// ─── Fair Application Route ────────────────────────────────────────────────────
 app.post('/api/fairs/apply', async (req, res) => {
   try {
     const { fairId, type, id } = req.body;
@@ -424,7 +422,6 @@ app.post('/api/fairs/apply', async (req, res) => {
   }
 });
 
-// ─── Invitation Routes ────────────────────────────────────────────────────────
 app.get('/api/invitations', async (req, res) => {
   try {
     const invitations = await db.getInvitations();
@@ -460,7 +457,6 @@ app.post('/api/invitations/:id/respond', async (req, res) => {
   }
 });
 
-// ─── Auth Routes ─────────────────────────────────────────────────────────────
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { name, email, password, occupation, description, logo, username } = req.body;
@@ -548,7 +544,6 @@ app.get('/api/auth/me', async (req, res) => {
   }
 });
 
-// PUT /api/fairs/:id
 app.put('/api/fairs/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -577,7 +572,6 @@ app.put('/api/fairs/:id', async (req, res) => {
   }
 });
 
-// POST /api/fairs/:id/respond
 app.post('/api/fairs/:id/respond', async (req, res) => {
   try {
     const { id } = req.params;
@@ -592,7 +586,6 @@ app.post('/api/fairs/:id/respond', async (req, res) => {
   }
 });
 
-// PUT /api/:entityType/:id/collaborators
 app.put('/api/:entityType/:id/collaborators', async (req, res) => {
   try {
     const { entityType, id } = req.params;
@@ -616,7 +609,6 @@ app.put('/api/:entityType/:id/collaborators', async (req, res) => {
   }
 });
 
-// DELETE /api/:entityType/:id/collaborators/:personId
 app.delete('/api/:entityType/:id/collaborators/:personId', async (req, res) => {
   try {
     const { entityType, id, personId } = req.params;
@@ -636,7 +628,6 @@ app.delete('/api/:entityType/:id/collaborators/:personId', async (req, res) => {
   }
 });
 
-// ─── Start Server ─────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`✅ AOURUM API corriendo en http://localhost:${PORT}`);
   if (!process.env.CLOUDINARY_CLOUD_NAME) {

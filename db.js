@@ -15,10 +15,10 @@ function slugifyUsername(name) {
   return name
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '') // remove accents
-    .replace(/[^a-z0-9]/g, '_') // replace non-alphanumeric with _
-    .replace(/_+/g, '_') // collapse multiple underscores
-    .replace(/^_+|_+$/g, ''); // trim underscores
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
 }
 
 async function generateUniqueSlug(table, name, column = 'slug') {
@@ -28,10 +28,10 @@ async function generateUniqueSlug(table, name, column = 'slug') {
   let baseSlug = name
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '') // remove accents
-    .replace(/[^a-z0-9]/g, '_') // replace non-alphanumeric with _
-    .replace(/_+/g, '_') // collapse multiple underscores
-    .replace(/^_+|_+$/g, ''); // trim underscores
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
 
   if (!baseSlug) {
     baseSlug = table + '_' + Math.floor(Math.random() * 10000);
@@ -62,18 +62,19 @@ async function generateUniqueSlug(table, name, column = 'slug') {
 }
 
 
-// Product helpers
 async function getProducts() {
   const { data, error } = await supabase.from('products').select('*');
   if (error) throw error;
   return (data || []).map(p => ({
     ...p,
     brandId: p.brand_id ? Number(p.brand_id) : null,
-    price: Number(p.price)
+    price: Number(p.price),
+    slug: p.slug || null
   }));
 }
 
 async function addProduct(product) {
+  const slug = await generateUniqueSlug('products', product.name);
   const { data, error } = await supabase
     .from('products')
     .insert([{
@@ -84,7 +85,8 @@ async function addProduct(product) {
       category: product.category || '',
       type: product.type || 'product',
       image: product.image || '',
-      brand_id: product.brandId ? Number(product.brandId) : null
+      brand_id: product.brandId ? Number(product.brandId) : null,
+      slug: slug
     }])
     .select()
     .single();
@@ -93,7 +95,8 @@ async function addProduct(product) {
   return {
     ...data,
     brandId: data.brand_id ? Number(data.brand_id) : null,
-    price: Number(data.price)
+    price: Number(data.price),
+    slug: data.slug || slug
   };
 }
 
@@ -115,7 +118,7 @@ async function updateProduct(id, updatedProduct) {
     .single();
 
   if (error) {
-    if (error.code === 'PGRST116') return null; // Row not found
+    if (error.code === 'PGRST116') return null;
     throw error;
   }
   return {
@@ -136,7 +139,6 @@ async function deleteProduct(id) {
   return data && data.length > 0;
 }
 
-// Fair helpers
 async function getFairs() {
   const { data, error } = await supabase
     .from('fairs')
@@ -224,7 +226,6 @@ async function addFair(fair) {
   };
 }
 
-// Band helpers
 async function getBands() {
   const { data, error } = await supabase
     .from('bands')
@@ -336,7 +337,6 @@ async function updateBand(id, updatedBand) {
   };
 }
 
-// Brand helpers
 async function getBrands() {
   const { data, error } = await supabase
     .from('brands')
@@ -353,6 +353,7 @@ async function getBrands() {
     description: b.description,
     logo: b.logo,
     slug: b.slug,
+    whatsappNumber: b.whatsapp_number || null,
     personIds: b.person_brands ? b.person_brands.map(pb => Number(pb.person_id)) : [],
     collaborators: b.person_brands ? b.person_brands.map(pb => ({ personId: Number(pb.person_id), role: pb.role || 'colaborador' })) : []
   }));
@@ -370,7 +371,8 @@ async function addBrand(brand) {
       category: brand.category || '',
       description: brand.description || '',
       logo: brand.logo || '',
-      slug: slug
+      slug: slug,
+      whatsapp_number: brand.whatsappNumber || null
     }])
     .select()
     .single();
@@ -392,6 +394,7 @@ async function addBrand(brand) {
     description: data.description,
     logo: data.logo,
     slug: data.slug,
+    whatsappNumber: data.whatsapp_number || null,
     personIds: personId ? [personId] : [],
     collaborators: personId ? [{ personId, role: 'creador_original' }] : []
   };
@@ -407,6 +410,9 @@ async function updateBrand(id, updatedBrand) {
   };
   if (updatedBrand.slug !== undefined) {
     updateFields.slug = updatedBrand.slug;
+  }
+  if (updatedBrand.whatsappNumber !== undefined) {
+    updateFields.whatsapp_number = updatedBrand.whatsappNumber || null;
   }
   const { data, error } = await supabase
     .from('brands')
@@ -433,12 +439,12 @@ async function updateBrand(id, updatedBrand) {
     description: data.description,
     logo: data.logo,
     slug: data.slug,
+    whatsappNumber: data.whatsapp_number || null,
     personIds: junctions ? junctions.map(j => Number(j.person_id)) : [],
     collaborators: junctions ? junctions.map(j => ({ personId: Number(j.person_id), role: j.role || 'colaborador' })) : []
   };
 }
 
-// Organizer helpers
 async function getOrganizers() {
   const { data, error } = await supabase
     .from('organizers')
@@ -526,7 +532,6 @@ async function updateOrganizer(id, updatedOrganizer) {
   };
 }
 
-// People helpers
 async function getPeople() {
   const { data, error } = await supabase
     .from('people')
@@ -631,7 +636,6 @@ async function updatePerson(id, updatedPerson) {
   const organizerIds = updatedPerson.organizerIds ? updatedPerson.organizerIds.map(Number) : [];
   const bandIds = updatedPerson.bandIds ? updatedPerson.bandIds.map(Number) : [];
 
-  // Fetch current roles to avoid losing them during replacement
   const { data: currentBrands } = await supabase
     .from('person_brands')
     .select('brand_id, role')
@@ -681,7 +685,6 @@ async function updatePerson(id, updatedPerson) {
   };
 }
 
-// Application helpers
 async function applyToFair(fairId, type, id) {
   const targetId = Number(id);
   const fId = Number(fairId);
@@ -732,7 +735,6 @@ async function applyToFair(fairId, type, id) {
   return fairs.find(f => f.id === fId);
 }
 
-// Invitation helpers
 async function getInvitations() {
   const { data, error } = await supabase.from('invitations').select('*');
   if (error) throw error;
