@@ -4,10 +4,12 @@ const multer = require('multer');
 const cloudinary = require('cloudinary').v2;
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { Resend } = require('resend');
 require('dotenv').config();
 
 const db = require('./db');
 const JWT_SECRET = process.env.JWT_SECRET || 'aourum_secret_2026';
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -541,6 +543,127 @@ app.get('/api/auth/me', async (req, res) => {
     res.json(safe);
   } catch (error) {
     res.status(401).json({ error: 'Token inválido o expirado.' });
+  }
+});
+
+app.post('/api/auth/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: 'El correo electrónico es requerido.' });
+    }
+    const emailLower = email.toLowerCase().trim();
+    const people = await db.getPeople();
+    const person = people.find(p => p.email && p.email.toLowerCase() === emailLower);
+    
+    if (!person) {
+      return res.status(404).json({ error: 'No existe una cuenta con ese correo.' });
+    }
+
+    // Usar la combinación de JWT_SECRET + passwordHash antiguo como firma secreta
+    const tempSecret = JWT_SECRET + (person.passwordHash || '');
+    const token = jwt.sign(
+      { id: person.id, email: person.email },
+      tempSecret,
+      { expiresIn: '15m' }
+    );
+
+    // Obtener la URL base del frontend
+    const host = req.headers.origin || 'http://localhost:3000';
+    const resetUrl = `${host}/reset-password?token=${token}&email=${encodeURIComponent(person.email)}`;
+
+    console.log(`\n🔑 [Recuperación de Contraseña] Enlace generado para ${person.email}:\n👉 ${resetUrl}\n`);
+
+    if (resend) {
+      try {
+        await resend.emails.send({
+          from: process.env.EMAIL_FROM || 'AOURUM <onboarding@resend.dev>',
+          to: person.email,
+          subject: 'Restablecer contraseña - AOURUM',
+          html: `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+              <h2 style="color: #d4af37; text-align: center;">AOURUM</h2>
+              <p>Hola, <strong>${person.name}</strong>:</p>
+              <p>Has solicitado restablecer tu contraseña en AOURUM, el mercado cultural de Arequipa.</p>
+              <p>Haz clic en el siguiente botón para establecer una nueva contraseña. Este enlace expira en 15 minutos:</p>
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="${resetUrl}" style="background: linear-gradient(135deg, #d4af37, #aa7c11); color: #1c1c1e; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Restablecer Contraseña</a>
+              </div>
+              <p style="color: #666; font-size: 0.9rem;">Si el botón no funciona, copia y pega el siguiente enlace en tu navegador:</p>
+              <p style="color: #888; font-size: 0.85rem; word-break: break-all;">${resetUrl}</p>
+              <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
+              <p style="color: #999; font-size: 0.8rem; text-align: center;">Si no solicitaste este cambio, puedes ignorar este correo de forma segura.</p>
+            </div>
+          `
+        });
+        return res.json({ message: 'Se ha enviado un enlace de recuperación a tu correo electrónico.' });
+      } catch (emailError) {
+        console.error('Error al enviar correo con Resend:', emailError);
+        return res.status(500).json({ error: 'Error al enviar el correo. Por favor, inténtalo de nuevo más tarde.' });
+      }
+    } else {
+      return res.json({ 
+        message: 'Modo Desarrollo: El enlace de recuperación ha sido impreso en la consola de la terminal del servidor.',
+        devMode: true 
+      });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/auth/reset-password', async (req, res) => {
+  try {
+    const { token, email, password } = req.body;
+    if (!token || !email || !password) {
+      return res.status(400).json({ error: 'Token, correo y nueva contraseña son requeridos.' });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres.' });
+    }
+
+    const emailLower = email.toLowerCase().trim();
+    const people = await db.getPeople();
+    const person = people.find(p => p.email && p.email.toLowerCase() === emailLower);
+
+    if (!person) {
+      return res.status(404).json({ error: 'Usuario no encontrado.' });
+    }
+
+    const tempSecret = JWT_SECRET + (person.passwordHash || '');
+    let decoded;
+    try {
+      decoded = jwt.verify(token, tempSecret);
+    } catch (err) {
+      return res.status(401).json({ error: 'El enlace de recuperación es inválido o ha expirado.' });
+    }
+
+    if (decoded.id !== person.id) {
+      return res.status(401).json({ error: 'El token no corresponde a este usuario.' });
+    }
+
+    const newPasswordHash = await bcrypt.hash(password, 10);
+
+    const updated = await db.updatePerson(person.id, {
+      name: person.name,
+      username: person.username,
+      email: person.email,
+      passwordHash: newPasswordHash,
+      occupation: person.occupation,
+      description: person.description,
+      logo: person.logo,
+      brandIds: person.brandIds,
+      organizerIds: person.organizerIds,
+      bandIds: person.bandIds
+    });
+
+    if (!updated) {
+      return res.status(500).json({ error: 'No se pudo actualizar la contraseña en la base de datos.' });
+    }
+
+    res.json({ message: 'Contraseña restablecida con éxito.' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
