@@ -340,6 +340,36 @@ app.put('/api/organizers/:id', async (req, res) => {
   }
 });
 
+app.delete('/api/bands/:id', async (req, res) => {
+  try {
+    const success = await db.deleteBand(req.params.id);
+    if (!success) return res.status(404).json({ error: 'Banda no encontrada' });
+    res.json({ message: 'Banda eliminada con éxito' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/brands/:id', async (req, res) => {
+  try {
+    const success = await db.deleteBrand(req.params.id);
+    if (!success) return res.status(404).json({ error: 'Marca no encontrada' });
+    res.json({ message: 'Marca eliminada con éxito' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/organizers/:id', async (req, res) => {
+  try {
+    const success = await db.deleteOrganizer(req.params.id);
+    if (!success) return res.status(404).json({ error: 'Organizador no encontrado' });
+    res.json({ message: 'Organizador eliminado con éxito' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get('/api/people', async (req, res) => {
   try {
     const people = await db.getPeople();

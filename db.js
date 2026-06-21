@@ -945,6 +945,50 @@ async function respondToFairApplication(fairId, type, entityId, accept) {
   return { success: true };
 }
 
+async function deleteBand(id) {
+  const bId = Number(id);
+  await supabase.from('person_bands').delete().eq('band_id', bId);
+  await supabase.from('fair_bands').delete().eq('band_id', bId);
+  await supabase.from('invitations').delete().eq('sender_id', bId).eq('sender_type', 'band');
+  const { data, error } = await supabase.from('bands').delete().eq('id', bId).select();
+  if (error) throw error;
+  return data && data.length > 0;
+}
+
+async function deleteBrand(id) {
+  const bId = Number(id);
+  await supabase.from('products').delete().eq('brand_id', bId);
+  await supabase.from('person_brands').delete().eq('brand_id', bId);
+  await supabase.from('fair_brands').delete().eq('brand_id', bId);
+  await supabase.from('invitations').delete().eq('sender_id', bId).eq('sender_type', 'brand');
+  const { data, error } = await supabase.from('brands').delete().eq('id', bId).select();
+  if (error) throw error;
+  return data && data.length > 0;
+}
+
+async function deleteOrganizer(id) {
+  const oId = Number(id);
+  const { data: fairsData, error: fairsFetchError } = await supabase
+    .from('fairs')
+    .select('id')
+    .eq('organizer_id', oId);
+  
+  if (fairsFetchError) throw fairsFetchError;
+  
+  if (fairsData && fairsData.length > 0) {
+    const fairIds = fairsData.map(f => f.id);
+    await supabase.from('fair_brands').delete().in('fair_id', fairIds);
+    await supabase.from('fair_bands').delete().in('fair_id', fairIds);
+    await supabase.from('fairs').delete().in('id', fairIds);
+  }
+  
+  await supabase.from('person_organizers').delete().eq('organizer_id', oId);
+  await supabase.from('invitations').delete().eq('sender_id', oId).eq('sender_type', 'organizer');
+  const { data, error } = await supabase.from('organizers').delete().eq('id', oId).select();
+  if (error) throw error;
+  return data && data.length > 0;
+}
+
 async function isSlugUnique(table, slug, excludeId = null) {
   if (!slug) return true;
   let query = supabase
@@ -971,12 +1015,15 @@ module.exports = {
   getBands,
   addBand,
   updateBand,
+  deleteBand,
   getBrands,
   addBrand,
   updateBrand,
+  deleteBrand,
   getOrganizers,
   addOrganizer,
   updateOrganizer,
+  deleteOrganizer,
   getPeople,
   addPerson,
   updatePerson,
