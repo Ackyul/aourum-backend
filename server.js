@@ -382,7 +382,7 @@ app.get('/api/people', async (req, res) => {
 
 app.post('/api/people', async (req, res) => {
   try {
-    const { name, occupation, description, logo, brandIds, organizerIds, bandIds } = req.body;
+    const { name, occupation, description, logo, brandIds, organizerIds, bandIds, lastName } = req.body;
     if (!name) {
       return res.status(400).json({ error: 'El nombre es requerido' });
     }
@@ -393,7 +393,8 @@ app.post('/api/people', async (req, res) => {
       logo: logo || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&h=150&fit=crop&q=80',
       brandIds,
       organizerIds,
-      bandIds
+      bandIds,
+      lastName
     });
     const { passwordHash, ...safe } = person;
     res.status(201).json(safe);
@@ -405,7 +406,7 @@ app.post('/api/people', async (req, res) => {
 app.put('/api/people/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, occupation, description, logo, brandIds, organizerIds, bandIds, username } = req.body;
+    const { name, occupation, description, logo, brandIds, organizerIds, bandIds, username, lastName } = req.body;
     if (!name) {
       return res.status(400).json({ error: 'El nombre es requerido' });
     }
@@ -427,7 +428,8 @@ app.put('/api/people/:id', async (req, res) => {
       brandIds,
       organizerIds,
       bandIds,
-      username: cleanUsername || undefined
+      username: cleanUsername || undefined,
+      lastName
     });
     if (!updated) return res.status(404).json({ error: 'Persona no encontrada' });
     const { passwordHash, ...safe } = updated;
@@ -491,7 +493,7 @@ app.post('/api/invitations/:id/respond', async (req, res) => {
 
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const { name, email, password, occupation, description, logo, username } = req.body;
+    const { name, email, password, occupation, description, logo, username, lastName } = req.body;
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'Nombre, email y contraseña son requeridos.' });
     }
@@ -520,6 +522,7 @@ app.post('/api/auth/register', async (req, res) => {
       occupation: occupation || '',
       description: description || '',
       logo: logo || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&h=150&fit=crop&q=80',
+      lastName
     });
     const token = jwt.sign({ id: person.id, email: person.email }, JWT_SECRET, { expiresIn: '30d' });
     const { passwordHash: _, ...safe } = person;
@@ -684,7 +687,8 @@ app.post('/api/auth/reset-password', async (req, res) => {
       logo: person.logo,
       brandIds: person.brandIds,
       organizerIds: person.organizerIds,
-      bandIds: person.bandIds
+      bandIds: person.bandIds,
+      lastName: person.lastName
     });
 
     if (!updated) {

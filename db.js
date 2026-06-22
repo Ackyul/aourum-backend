@@ -551,6 +551,7 @@ async function getPeople() {
     occupation: p.occupation,
     description: p.description,
     logo: p.logo,
+    lastName: p.last_name || null,
     brandIds: p.person_brands ? p.person_brands.map(b => Number(b.brand_id)) : [],
     brandRoles: p.person_brands ? p.person_brands.map(b => ({ brandId: Number(b.brand_id), role: b.role || 'colaborador' })) : [],
     organizerIds: p.person_organizers ? p.person_organizers.map(o => Number(o.organizer_id)) : [],
@@ -569,7 +570,8 @@ async function addPerson(person) {
       password_hash: person.passwordHash || null,
       occupation: person.occupation || '',
       description: person.description || '',
-      logo: person.logo || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&h=150&fit=crop&q=80'
+      logo: person.logo || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&h=150&fit=crop&q=80',
+      last_name: person.lastName || null
     }])
     .select()
     .single();
@@ -599,6 +601,7 @@ async function addPerson(person) {
     occupation: data.occupation,
     description: data.description,
     logo: data.logo,
+    lastName: data.last_name || null,
     brandIds,
     organizerIds,
     bandIds
@@ -613,7 +616,8 @@ async function updatePerson(id, updatedPerson) {
     password_hash: updatedPerson.passwordHash,
     occupation: updatedPerson.occupation,
     description: updatedPerson.description,
-    logo: updatedPerson.logo
+    logo: updatedPerson.logo,
+    last_name: updatedPerson.lastName !== undefined ? updatedPerson.lastName : null
   };
 
   if (updatedPerson.username !== undefined) {
@@ -679,6 +683,7 @@ async function updatePerson(id, updatedPerson) {
     occupation: data.occupation,
     description: data.description,
     logo: data.logo,
+    lastName: data.last_name || null,
     brandIds,
     organizerIds,
     bandIds
