@@ -100,7 +100,7 @@ app.get('/api/products/by-slug/:slug', async (req, res) => {
 
 app.post('/api/products', async (req, res) => {
   try {
-    const { name, description, price, stock, category, brandId, image, type } = req.body;
+    const { name, description, price, priceAourum, stock, category, brandId, image, type } = req.body;
     if (!name || !price || !category || !brandId) {
       return res.status(400).json({ error: 'Faltan campos requeridos (nombre, precio, categoría, brandId)' });
     }
@@ -108,6 +108,7 @@ app.post('/api/products', async (req, res) => {
       name,
       description: description || '',
       price: Number(price),
+      priceAourum: priceAourum ? Number(priceAourum) : null,
       stock: (stock === null || stock === undefined || stock === '') ? null : Number(stock),
       category,
       brandId: Number(brandId),
@@ -123,7 +124,7 @@ app.post('/api/products', async (req, res) => {
 app.put('/api/products/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, description, price, stock, category, brandId, image, type } = req.body;
+    const { name, description, price, priceAourum, stock, category, brandId, image, type } = req.body;
     if (!name || !price || !category || !brandId) {
       return res.status(400).json({ error: 'Faltan campos requeridos para la actualización (nombre, precio, categoría, brandId)' });
     }
@@ -131,6 +132,7 @@ app.put('/api/products/:id', async (req, res) => {
       name,
       description: description || '',
       price: Number(price),
+      priceAourum: priceAourum ? Number(priceAourum) : null,
       stock: (stock === null || stock === undefined || stock === '') ? null : Number(stock),
       category,
       brandId: Number(brandId),

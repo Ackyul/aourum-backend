@@ -69,6 +69,7 @@ async function getProducts() {
     ...p,
     brandId: p.brand_id ? Number(p.brand_id) : null,
     price: Number(p.price),
+    priceAourum: p.price_aourum ? Number(p.price_aourum) : null,
     slug: p.slug || null
   }));
 }
@@ -81,6 +82,7 @@ async function addProduct(product) {
       name: product.name,
       description: product.description || '',
       price: Number(product.price),
+      price_aourum: product.priceAourum ? Number(product.priceAourum) : null,
       stock: (product.stock === null || product.stock === undefined || product.stock === '') ? null : Number(product.stock),
       category: product.category || '',
       type: product.type || 'product',
@@ -96,6 +98,7 @@ async function addProduct(product) {
     ...data,
     brandId: data.brand_id ? Number(data.brand_id) : null,
     price: Number(data.price),
+    priceAourum: data.price_aourum ? Number(data.price_aourum) : null,
     slug: data.slug || slug
   };
 }
@@ -107,6 +110,7 @@ async function updateProduct(id, updatedProduct) {
       name: updatedProduct.name,
       description: updatedProduct.description || '',
       price: Number(updatedProduct.price),
+      price_aourum: updatedProduct.priceAourum ? Number(updatedProduct.priceAourum) : null,
       stock: (updatedProduct.stock === null || updatedProduct.stock === undefined || updatedProduct.stock === '') ? null : Number(updatedProduct.stock),
       category: updatedProduct.category || '',
       type: updatedProduct.type || 'product',
@@ -124,7 +128,8 @@ async function updateProduct(id, updatedProduct) {
   return {
     ...data,
     brandId: data.brand_id ? Number(data.brand_id) : null,
-    price: Number(data.price)
+    price: Number(data.price),
+    priceAourum: data.price_aourum ? Number(data.price_aourum) : null
   };
 }
 
