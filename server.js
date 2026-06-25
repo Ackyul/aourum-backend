@@ -92,7 +92,40 @@ app.post('/api/remove-bg-ai', async (req, res) => {
     const base64Data = image.replace(/^data:image\/\w+;base64,/, "");
     const buffer = Buffer.from(base64Data, 'base64');
 
-    // Create a unique temp filename
+    // 1. If PhotoRoom API Key is configured, use it for production-grade, ultra-fast removal
+    const photoRoomKey = process.env.PHOTOROOM_API_KEY;
+    if (photoRoomKey) {
+      console.log("[PhotoRoom] Procesando remoción de fondo mediante la API oficial...");
+      try {
+        const formData = new FormData();
+        const blob = new Blob([buffer], { type: 'image/png' });
+        formData.append('image_file', blob, 'image.png');
+
+        const response = await fetch('https://sdk.photoroom.com/v1/segment', {
+          method: 'POST',
+          headers: {
+            'x-api-key': photoRoomKey
+          },
+          body: formData
+        });
+
+        if (!response.ok) {
+          const errText = await response.text();
+          console.error("[PhotoRoom] Error de la API:", errText);
+          return res.status(502).json({ error: `La API de PhotoRoom falló: ${errText}` });
+        }
+
+        const resBuffer = await response.arrayBuffer();
+        const outBase64 = Buffer.from(resBuffer).toString('base64');
+        return res.json({ image: `data:image/png;base64,${outBase64}` });
+      } catch (apiErr) {
+        console.error("[PhotoRoom] Error de red o ejecución:", apiErr);
+        // Fallback to local python if API fails, just in case
+      }
+    }
+
+    // 2. Fallback: Local Python script with rembg (Ideal for local testing without keys)
+    console.log("[Local AI] Procesando remoción de fondo mediante rembg local...");
     const tempId = Date.now() + '_' + Math.round(Math.random() * 1e9);
     const inputPath = path.join(__dirname, `temp_in_${tempId}.png`);
     const outputPath = path.join(__dirname, `temp_out_${tempId}.png`);
@@ -112,7 +145,7 @@ app.post('/api/remove-bg-ai', async (req, res) => {
         if (fs.existsSync(outputPath)) {
           try { fs.unlinkSync(outputPath); } catch (e) { console.error(e); }
         }
-        return res.status(500).json({ error: 'Error al procesar la imagen con IA local. Asegúrate de que rembg esté instalado.' });
+        return res.status(500).json({ error: 'Error al procesar la imagen con IA local. Asegúrate de que rembg esté instalado o configura la API de PhotoRoom.' });
       }
 
       try {
