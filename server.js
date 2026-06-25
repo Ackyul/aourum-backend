@@ -76,6 +76,70 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
   }
 });
 
+app.post('/api/remove-bg-ai', async (req, res) => {
+  const fs = require('fs');
+  const path = require('path');
+  const { execFile } = require('child_process');
+
+  try {
+    const { image } = req.body;
+    if (!image) {
+      return res.status(400).json({ error: 'No se recibió ninguna imagen' });
+    }
+
+    // Decode base64 image
+    const base64Data = image.replace(/^data:image\/\w+;base64,/, "");
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    // Create a unique temp filename
+    const tempId = Date.now() + '_' + Math.round(Math.random() * 1e9);
+    const inputPath = path.join(__dirname, `temp_in_${tempId}.png`);
+    const outputPath = path.join(__dirname, `temp_out_${tempId}.png`);
+
+    // Save temporary input file
+    fs.writeFileSync(inputPath, buffer);
+
+    // Run the Python script to remove background using rembg
+    execFile('python', ['remove_bg.py', inputPath, outputPath], (error, stdout, stderr) => {
+      // Clean up input file
+      if (fs.existsSync(inputPath)) {
+        try { fs.unlinkSync(inputPath); } catch (e) { console.error(e); }
+      }
+
+      if (error) {
+        console.error('Error al ejecutar rembg:', stderr || error || stdout);
+        if (fs.existsSync(outputPath)) {
+          try { fs.unlinkSync(outputPath); } catch (e) { console.error(e); }
+        }
+        return res.status(500).json({ error: 'Error al procesar la imagen con IA local. Asegúrate de que rembg esté instalado.' });
+      }
+
+      try {
+        // Read the transparent output image
+        const outBuffer = fs.readFileSync(outputPath);
+        const outBase64 = outBuffer.toString('base64');
+        const dataUrl = `data:image/png;base64,${outBase64}`;
+
+        // Clean up output file
+        if (fs.existsSync(outputPath)) {
+          try { fs.unlinkSync(outputPath); } catch (e) { console.error(e); }
+        }
+
+        res.json({ image: dataUrl });
+      } catch (readErr) {
+        console.error('Error al leer imagen procesada:', readErr);
+        if (fs.existsSync(outputPath)) {
+          try { fs.unlinkSync(outputPath); } catch (e) { console.error(e); }
+        }
+        return res.status(500).json({ error: 'Error al leer la imagen procesada de la IA' });
+      }
+    });
+  } catch (err) {
+    console.error('Error en remove-bg-ai:', err);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
 app.get('/api/products', async (req, res) => {
   try {
     const products = await db.getProducts();
