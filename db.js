@@ -67,6 +67,7 @@ async function getProducts() {
   if (error) throw error;
   return (data || []).map(p => ({
     ...p,
+    category: p.category ? p.category.trim() : '',
     brandId: p.brand_id ? Number(p.brand_id) : null,
     price: Number(p.price),
     priceAourum: p.price_aourum ? Number(p.price_aourum) : null,
@@ -75,6 +76,18 @@ async function getProducts() {
 }
 
 async function addProduct(product) {
+  let cleanCategory = '';
+  if (product.category) {
+    const trimmed = product.category.trim();
+    try {
+      const allProducts = await getProducts();
+      const match = allProducts.find(p => p.category && p.category.trim().toLowerCase() === trimmed.toLowerCase());
+      cleanCategory = match ? match.category.trim() : trimmed;
+    } catch (err) {
+      cleanCategory = trimmed;
+    }
+  }
+
   const slug = await generateUniqueSlug('products', product.name);
   const { data, error } = await supabase
     .from('products')
@@ -84,7 +97,7 @@ async function addProduct(product) {
       price: Number(product.price),
       price_aourum: product.priceAourum ? Number(product.priceAourum) : null,
       stock: (product.stock === null || product.stock === undefined || product.stock === '') ? null : Number(product.stock),
-      category: product.category || '',
+      category: cleanCategory,
       type: product.type || 'product',
       image: product.image || '',
       brand_id: product.brandId ? Number(product.brandId) : null,
@@ -104,6 +117,18 @@ async function addProduct(product) {
 }
 
 async function updateProduct(id, updatedProduct) {
+  let cleanCategory = '';
+  if (updatedProduct.category) {
+    const trimmed = updatedProduct.category.trim();
+    try {
+      const allProducts = await getProducts();
+      const match = allProducts.find(p => p.category && p.category.trim().toLowerCase() === trimmed.toLowerCase());
+      cleanCategory = match ? match.category.trim() : trimmed;
+    } catch (err) {
+      cleanCategory = trimmed;
+    }
+  }
+
   const { data, error } = await supabase
     .from('products')
     .update({
@@ -112,7 +137,7 @@ async function updateProduct(id, updatedProduct) {
       price: Number(updatedProduct.price),
       price_aourum: updatedProduct.priceAourum ? Number(updatedProduct.priceAourum) : null,
       stock: (updatedProduct.stock === null || updatedProduct.stock === undefined || updatedProduct.stock === '') ? null : Number(updatedProduct.stock),
-      category: updatedProduct.category || '',
+      category: cleanCategory,
       type: updatedProduct.type || 'product',
       image: updatedProduct.image || '',
       brand_id: updatedProduct.brandId ? Number(updatedProduct.brandId) : null
