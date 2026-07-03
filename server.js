@@ -9,6 +9,8 @@ require('dotenv').config();
 
 const db = require('./db');
 const JWT_SECRET = process.env.JWT_SECRET || 'aourum_secret_2026';
+const { OAuth2Client } = require('google-auth-library');
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 const app = express();
@@ -796,6 +798,232 @@ app.post('/api/auth/reset-password', async (req, res) => {
     }
 
     res.json({ message: 'Contraseña restablecida con éxito.' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Middleware de autenticación
+function requireAuth(req, res, next) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Token requerido.' });
+    }
+    const token = authHeader.split(' ')[1];
+    const payload = jwt.verify(token, JWT_SECRET);
+    req.user = payload; // payload tiene { id, email }
+    next();
+  } catch (error) {
+    return res.status(401).json({ error: 'Token inválido o expirado.' });
+  }
+}
+
+// ── ENDPOINTS DE AUTENTICACIÓN GOOGLE & CONFIGURACIÓN DE PERFIL ──
+
+app.post('/api/auth/google', async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ error: 'Token de Google requerido.' });
+
+    const ticket = await googleClient.verifyIdToken({
+      idToken: token,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    
+    const payload = ticket.getPayload();
+    const { sub: googleId, name, email, picture } = payload;
+    const emailLower = email.toLowerCase().trim();
+
+    const people = await db.getPeople();
+    // 1. Intentar buscar por google_id
+    let person = people.find(p => p.googleId === googleId);
+
+    // 2. Si no, buscar por email
+    if (!person) {
+      person = people.find(p => p.email && p.email.toLowerCase() === emailLower);
+      if (person) {
+        // Asociar google_id automáticamente si coincide el correo
+        await db.updatePerson(person.id, {
+          name: person.name,
+          username: person.username,
+          email: person.email,
+          logo: person.logo || picture,
+          googleId: googleId
+        });
+        person.googleId = googleId;
+      }
+    }
+
+    // 3. Si no existe de ninguna forma, registrar nuevo usuario
+    if (!person) {
+      // Generar username único
+      const cleanUsername = name ? name.toLowerCase().replace(/[^a-z0-9_]/g, '').trim() : 'user_' + Math.floor(Math.random() * 10000);
+      let uniqueUsername = cleanUsername;
+      let counter = 1;
+      while (people.some(p => p.username && p.username.toLowerCase() === uniqueUsername.toLowerCase())) {
+        uniqueUsername = `${cleanUsername}_${counter}`;
+        counter++;
+      }
+
+      person = await db.addPerson({
+        name: name || 'Usuario Aourum',
+        username: uniqueUsername,
+        email: emailLower,
+        passwordHash: null, // Sin contraseña local al ser social
+        logo: picture || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&h=150&fit=crop&q=80',
+        googleId: googleId,
+        occupation: '',
+        description: 'Usuario registrado vía Google'
+      });
+    }
+
+    const customToken = jwt.sign({ id: person.id, email: person.email }, JWT_SECRET, { expiresIn: '30d' });
+    const { passwordHash, ...safe } = person;
+
+    res.json({ token: customToken, person: safe });
+  } catch (error) {
+    console.error('Error Google OAuth:', error);
+    res.status(401).json({ error: 'Autenticación con Google fallida.' });
+  }
+});
+
+app.put('/api/auth/change-email', requireAuth, async (req, res) => {
+  try {
+    const { newEmail, password } = req.body;
+    if (!newEmail) return res.status(400).json({ error: 'El nuevo correo es requerido.' });
+    
+    const emailLower = newEmail.toLowerCase().trim();
+    const people = await db.getPeople();
+    
+    // Verificar si el correo ya está en uso
+    const existing = people.find(p => p.email && p.email.toLowerCase() === emailLower);
+    if (existing && existing.id !== req.user.id) {
+      return res.status(409).json({ error: 'El correo electrónico ya está en uso por otra cuenta.' });
+    }
+
+    const person = people.find(p => p.id === req.user.id);
+    if (!person) return res.status(404).json({ error: 'Usuario no encontrado.' });
+
+    // Si el usuario tiene password_hash configurado, validarlo
+    if (person.passwordHash) {
+      if (!password) {
+        return res.status(400).json({ error: 'Se requiere la contraseña actual para realizar este cambio.' });
+      }
+      const valid = await bcrypt.compare(password, person.passwordHash);
+      if (!valid) {
+        return res.status(401).json({ error: 'Contraseña incorrecta.' });
+      }
+    }
+
+    const updated = await db.updatePerson(person.id, {
+      ...person,
+      email: emailLower
+    });
+
+    if (!updated) return res.status(500).json({ error: 'No se pudo actualizar el correo.' });
+    
+    // Regenerar token con el nuevo email
+    const token = jwt.sign({ id: updated.id, email: updated.email }, JWT_SECRET, { expiresIn: '30d' });
+    const { passwordHash: _, ...safe } = updated;
+
+    res.json({ message: 'Correo electrónico actualizado correctamente.', token, person: safe });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/auth/change-password', requireAuth, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!newPassword || newPassword.length < 6) {
+      return res.status(400).json({ error: 'La nueva contraseña debe tener al menos 6 caracteres.' });
+    }
+
+    const people = await db.getPeople();
+    const person = people.find(p => p.id === req.user.id);
+    if (!person) return res.status(404).json({ error: 'Usuario no encontrado.' });
+
+    // Validar contraseña actual si la tiene
+    if (person.passwordHash) {
+      if (!currentPassword) {
+        return res.status(400).json({ error: 'Se requiere la contraseña actual.' });
+      }
+      const valid = await bcrypt.compare(currentPassword, person.passwordHash);
+      if (!valid) {
+        return res.status(401).json({ error: 'La contraseña actual es incorrecta.' });
+      }
+    }
+
+    const newPasswordHash = await bcrypt.hash(newPassword, 10);
+    const updated = await db.updatePerson(person.id, {
+      ...person,
+      passwordHash: newPasswordHash
+    });
+
+    if (!updated) return res.status(500).json({ error: 'No se pudo actualizar la contraseña.' });
+    res.json({ message: 'Contraseña actualizada con éxito.' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/auth/link-google', requireAuth, async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ error: 'Token de Google requerido.' });
+
+    const ticket = await googleClient.verifyIdToken({
+      idToken: token,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    
+    const payload = ticket.getPayload();
+    const { sub: googleId } = payload;
+
+    const people = await db.getPeople();
+    // Validar si ese google_id ya está vinculado a otra cuenta
+    const existing = people.find(p => p.googleId === googleId);
+    if (existing && existing.id !== req.user.id) {
+      return res.status(409).json({ error: 'Esta cuenta de Google ya está vinculada a otro perfil de AOURUM.' });
+    }
+
+    const person = people.find(p => p.id === req.user.id);
+    if (!person) return res.status(404).json({ error: 'Usuario no encontrado.' });
+
+    const updated = await db.updatePerson(person.id, {
+      ...person,
+      googleId: googleId
+    });
+
+    if (!updated) return res.status(500).json({ error: 'No se pudo vincular la cuenta.' });
+    const { passwordHash: _, ...safe } = updated;
+    res.json({ message: 'Cuenta de Google vinculada con éxito.', person: safe });
+  } catch (error) {
+    console.error('Link Google Error:', error);
+    res.status(400).json({ error: 'Token de Google inválido.' });
+  }
+});
+
+app.post('/api/auth/unlink-google', requireAuth, async (req, res) => {
+  try {
+    const people = await db.getPeople();
+    const person = people.find(p => p.id === req.user.id);
+    if (!person) return res.status(404).json({ error: 'Usuario no encontrado.' });
+
+    // Impedir desvinculación si el usuario no tiene contraseña (para evitar que se quede sin métodos de login)
+    if (!person.passwordHash) {
+      return res.status(400).json({ error: 'No puedes desvincular Google si no tienes una contraseña configurada en tu cuenta.' });
+    }
+
+    const updated = await db.updatePerson(person.id, {
+      ...person,
+      googleId: null
+    });
+
+    if (!updated) return res.status(500).json({ error: 'No se pudo desvincular la cuenta.' });
+    const { passwordHash: _, ...safe } = updated;
+    res.json({ message: 'Cuenta de Google desvinculada con éxito.', person: safe });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

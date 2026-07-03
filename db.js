@@ -582,6 +582,7 @@ async function getPeople() {
     description: p.description,
     logo: p.logo,
     lastName: p.last_name || null,
+    googleId: p.google_id || null,
     brandIds: p.person_brands ? p.person_brands.map(b => Number(b.brand_id)) : [],
     brandRoles: p.person_brands ? p.person_brands.map(b => ({ brandId: Number(b.brand_id), role: b.role || 'colaborador' })) : [],
     organizerIds: p.person_organizers ? p.person_organizers.map(o => Number(o.organizer_id)) : [],
@@ -601,7 +602,8 @@ async function addPerson(person) {
       occupation: person.occupation || '',
       description: person.description || '',
       logo: person.logo || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&h=150&fit=crop&q=80',
-      last_name: person.lastName || null
+      last_name: person.lastName || null,
+      google_id: person.googleId || null
     }])
     .select()
     .single();
@@ -632,6 +634,7 @@ async function addPerson(person) {
     description: data.description,
     logo: data.logo,
     lastName: data.last_name || null,
+    googleId: data.google_id || null,
     brandIds,
     organizerIds,
     bandIds
@@ -652,6 +655,10 @@ async function updatePerson(id, updatedPerson) {
 
   if (updatedPerson.username !== undefined) {
     updateFields.username = updatedPerson.username || slugifyUsername(updatedPerson.name);
+  }
+
+  if (updatedPerson.googleId !== undefined) {
+    updateFields.google_id = updatedPerson.googleId;
   }
 
   const { data, error } = await supabase
@@ -714,6 +721,7 @@ async function updatePerson(id, updatedPerson) {
     description: data.description,
     logo: data.logo,
     lastName: data.last_name || null,
+    googleId: data.google_id || null,
     brandIds,
     organizerIds,
     bandIds
