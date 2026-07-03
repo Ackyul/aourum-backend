@@ -819,7 +819,63 @@ function requireAuth(req, res, next) {
   }
 }
 
-// ── ENDPOINTS DE AUTENTICACIÓN GOOGLE & CONFIGURACIÓN DE PERFIL ──
+// ── ENDPOINTS DE AUTENTICACIÓN GOOGLE, FACEBOOK & CONFIGURACIÓN DE PERFIL ──
+
+app.post('/api/auth/facebook', async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ error: 'Token de Facebook requerido.' });
+
+    // Consultar Graph API de Facebook
+    const fbResponse = await fetch(`https://graph.facebook.com/me?fields=id,name,email,picture.type(large)&access_token=${token}`);
+    const fbData = await fbResponse.json();
+
+    if (fbData.error) {
+      console.error('Error de validación Facebook:', fbData.error);
+      return res.status(401).json({ error: 'Token de Facebook inválido o expirado.' });
+    }
+
+    const { name, email, picture } = fbData;
+    if (!email) {
+      return res.status(400).json({ error: 'No se pudo obtener el correo asociado a esta cuenta de Facebook.' });
+    }
+
+    const emailLower = email.toLowerCase().trim();
+    const pictureUrl = picture?.data?.url || null;
+
+    const people = await db.getPeople();
+    let person = people.find(p => p.email && p.email.toLowerCase() === emailLower);
+
+    if (!person) {
+      // Registrar nueva persona
+      const cleanUsername = name ? name.toLowerCase().replace(/[^a-z0-9_]/g, '').trim() : 'user_' + Math.floor(Math.random() * 10000);
+      let uniqueUsername = cleanUsername;
+      let counter = 1;
+      while (people.some(p => p.username && p.username.toLowerCase() === uniqueUsername.toLowerCase())) {
+        uniqueUsername = `${cleanUsername}_${counter}`;
+        counter++;
+      }
+
+      person = await db.addPerson({
+        name: name || 'Usuario Aourum',
+        username: uniqueUsername,
+        email: emailLower,
+        passwordHash: null,
+        logo: pictureUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&h=150&fit=crop&q=80',
+        occupation: '',
+        description: 'Usuario registrado vía Facebook'
+      });
+    }
+
+    const customToken = jwt.sign({ id: person.id, email: person.email }, JWT_SECRET, { expiresIn: '30d' });
+    const { passwordHash, ...safe } = person;
+
+    res.json({ token: customToken, person: safe });
+  } catch (error) {
+    console.error('Error Facebook Login endpoint:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 app.post('/api/auth/google', async (req, res) => {
   try {
