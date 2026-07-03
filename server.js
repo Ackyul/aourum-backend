@@ -835,7 +835,7 @@ app.post('/api/auth/facebook', async (req, res) => {
       return res.status(401).json({ error: 'Token de Facebook inválido o expirado.' });
     }
 
-    const { name, email, picture } = fbData;
+    const { id: facebookId, name, email, picture } = fbData;
     if (!email) {
       return res.status(400).json({ error: 'No se pudo obtener el correo asociado a esta cuenta de Facebook.' });
     }
@@ -844,9 +844,18 @@ app.post('/api/auth/facebook', async (req, res) => {
     const pictureUrl = picture?.data?.url || null;
 
     const people = await db.getPeople();
-    let person = people.find(p => p.email && p.email.toLowerCase() === emailLower);
+    // Buscar si ya está vinculado o si coincide el email
+    let person = people.find(p => p.facebookId === facebookId || (p.email && p.email.toLowerCase() === emailLower));
 
-    if (!person) {
+    if (person) {
+      // Si el usuario existe pero no tenía facebookId guardado, vincularlo
+      if (!person.facebookId) {
+        person = await db.updatePerson(person.id, {
+          ...person,
+          facebookId: facebookId
+        });
+      }
+    } else {
       // Registrar nueva persona
       const cleanUsername = name ? name.toLowerCase().replace(/[^a-z0-9_]/g, '').trim() : 'user_' + Math.floor(Math.random() * 10000);
       let uniqueUsername = cleanUsername;
@@ -863,7 +872,8 @@ app.post('/api/auth/facebook', async (req, res) => {
         passwordHash: null,
         logo: pictureUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&h=150&fit=crop&q=80',
         occupation: '',
-        description: 'Usuario registrado vía Facebook'
+        description: 'Usuario registrado vía Facebook',
+        facebookId: facebookId
       });
     }
 
@@ -1080,6 +1090,69 @@ app.post('/api/auth/unlink-google', requireAuth, async (req, res) => {
     if (!updated) return res.status(500).json({ error: 'No se pudo desvincular la cuenta.' });
     const { passwordHash: _, ...safe } = updated;
     res.json({ message: 'Cuenta de Google desvinculada con éxito.', person: safe });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/auth/link-facebook', requireAuth, async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ error: 'Token de Facebook requerido.' });
+
+    // Consultar Graph API de Facebook
+    const fbResponse = await fetch(`https://graph.facebook.com/me?fields=id&access_token=${token}`);
+    const fbData = await fbResponse.json();
+
+    if (fbData.error) {
+      console.error('Error de validación Facebook Link:', fbData.error);
+      return res.status(401).json({ error: 'Token de Facebook inválido.' });
+    }
+
+    const { id: facebookId } = fbData;
+
+    const people = await db.getPeople();
+    const existing = people.find(p => p.facebookId === facebookId);
+    if (existing && existing.id !== req.user.id) {
+      return res.status(409).json({ error: 'Esta cuenta de Facebook ya está vinculada a otro perfil de AOURUM.' });
+    }
+
+    const person = people.find(p => p.id === req.user.id);
+    if (!person) return res.status(404).json({ error: 'Usuario no encontrado.' });
+
+    const updated = await db.updatePerson(person.id, {
+      ...person,
+      facebookId: facebookId
+    });
+
+    if (!updated) return res.status(500).json({ error: 'No se pudo vincular la cuenta.' });
+    const { passwordHash: _, ...safe } = updated;
+    res.json({ message: 'Cuenta de Facebook vinculada con éxito.', person: safe });
+  } catch (error) {
+    console.error('Link Facebook Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/auth/unlink-facebook', requireAuth, async (req, res) => {
+  try {
+    const people = await db.getPeople();
+    const person = people.find(p => p.id === req.user.id);
+    if (!person) return res.status(404).json({ error: 'Usuario no encontrado.' });
+
+    // Impedir desvinculación si no tiene otro método de acceso
+    if (!person.passwordHash && !person.googleId) {
+      return res.status(400).json({ error: 'No puedes desvincular Facebook si no tienes otro método de acceso configurado (contraseña o Google).' });
+    }
+
+    const updated = await db.updatePerson(person.id, {
+      ...person,
+      facebookId: null
+    });
+
+    if (!updated) return res.status(500).json({ error: 'No se pudo desvincular la cuenta.' });
+    const { passwordHash: _, ...safe } = updated;
+    res.json({ message: 'Cuenta de Facebook desvinculada con éxito.', person: safe });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

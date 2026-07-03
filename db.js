@@ -583,6 +583,7 @@ async function getPeople() {
     logo: p.logo,
     lastName: p.last_name || null,
     googleId: p.google_id || null,
+    facebookId: p.facebook_id || null,
     brandIds: p.person_brands ? p.person_brands.map(b => Number(b.brand_id)) : [],
     brandRoles: p.person_brands ? p.person_brands.map(b => ({ brandId: Number(b.brand_id), role: b.role || 'colaborador' })) : [],
     organizerIds: p.person_organizers ? p.person_organizers.map(o => Number(o.organizer_id)) : [],
@@ -603,7 +604,8 @@ async function addPerson(person) {
       description: person.description || '',
       logo: person.logo || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&h=150&fit=crop&q=80',
       last_name: person.lastName || null,
-      google_id: person.googleId || null
+      google_id: person.googleId || null,
+      facebook_id: person.facebookId || null
     }])
     .select()
     .single();
@@ -635,6 +637,7 @@ async function addPerson(person) {
     logo: data.logo,
     lastName: data.last_name || null,
     googleId: data.google_id || null,
+    facebookId: data.facebook_id || null,
     brandIds,
     organizerIds,
     bandIds
@@ -659,6 +662,10 @@ async function updatePerson(id, updatedPerson) {
 
   if (updatedPerson.googleId !== undefined) {
     updateFields.google_id = updatedPerson.googleId;
+  }
+
+  if (updatedPerson.facebookId !== undefined) {
+    updateFields.facebook_id = updatedPerson.facebookId;
   }
 
   const { data, error } = await supabase
@@ -722,6 +729,7 @@ async function updatePerson(id, updatedPerson) {
     logo: data.logo,
     lastName: data.last_name || null,
     googleId: data.google_id || null,
+    facebookId: data.facebook_id || null,
     brandIds,
     organizerIds,
     bandIds
