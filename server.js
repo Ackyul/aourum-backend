@@ -5,10 +5,19 @@ const cloudinary = require('cloudinary').v2;
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { Resend } = require('resend');
+const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
 const db = require('./db');
-const JWT_SECRET = process.env.JWT_SECRET || 'aourum_secret_2026';
+
+// ── JWT_SECRET es OBLIGATORIO ──
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.error('❌ FATAL: JWT_SECRET no está configurado en las variables de entorno.');
+  console.error('   Genera uno con: node -e "console.log(require(\'crypto\').randomBytes(64).toString(\'hex\'))"');
+  process.exit(1);
+}
+
 const { OAuth2Client } = require('google-auth-library');
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
@@ -35,9 +44,42 @@ const upload = multer({
   },
 });
 
-app.use(cors());
+app.use(cors({
+  origin: [
+    'http://localhost:3000',
+    process.env.FRONTEND_URL
+  ].filter(Boolean),
+  credentials: true
+}));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
+
+// ── Rate Limiters ──
+const globalLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiadas solicitudes. Intenta de nuevo en un minuto.' }
+});
+
+const authLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiados intentos de autenticación. Espera un minuto.' }
+});
+
+const aiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiadas solicitudes de IA. Espera un minuto.' }
+});
+
+app.use(globalLimiter);
 
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
@@ -48,7 +90,7 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'AOURUM API is running' });
 });
 
-app.post('/api/upload', upload.single('file'), async (req, res) => {
+app.post('/api/upload', requireAuth, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No se recibió ningún archivo' });
@@ -79,7 +121,7 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
   }
 });
 
-app.post('/api/remove-bg-ai', async (req, res) => {
+app.post('/api/remove-bg-ai', requireAuth, aiLimiter, async (req, res) => {
   const fs = require('fs');
   const path = require('path');
   const { execFile } = require('child_process');
@@ -198,11 +240,16 @@ app.get('/api/products/by-slug/:slug', async (req, res) => {
 });
 
 
-app.post('/api/products', async (req, res) => {
+app.post('/api/products', requireAuth, async (req, res) => {
   try {
     const { name, description, price, priceAourum, stock, category, brandId, image, type } = req.body;
     if (!name || !price || !category || !brandId) {
       return res.status(400).json({ error: 'Faltan campos requeridos (nombre, precio, categoría, brandId)' });
+    }
+    // Verificar que el usuario es colaborador de la marca
+    const allowed = await isCollaborator(req.user.id, 'brand', brandId);
+    if (!allowed) {
+      return res.status(403).json({ error: 'No tienes permiso para agregar productos a esta marca.' });
     }
     const product = await db.addProduct({
       name,
@@ -221,12 +268,17 @@ app.post('/api/products', async (req, res) => {
   }
 });
 
-app.put('/api/products/:id', async (req, res) => {
+app.put('/api/products/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const { name, description, price, priceAourum, stock, category, brandId, image, type } = req.body;
     if (!name || !price || !category || !brandId) {
       return res.status(400).json({ error: 'Faltan campos requeridos para la actualización (nombre, precio, categoría, brandId)' });
+    }
+    // Verificar que el usuario es colaborador de la marca del producto
+    const allowed = await isCollaborator(req.user.id, 'brand', brandId);
+    if (!allowed) {
+      return res.status(403).json({ error: 'No tienes permiso para editar productos de esta marca.' });
     }
     const updated = await db.updateProduct(id, {
       name,
@@ -246,8 +298,16 @@ app.put('/api/products/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/products/:id', async (req, res) => {
+app.delete('/api/products/:id', requireAuth, async (req, res) => {
   try {
+    // Buscar el producto para verificar su brandId
+    const products = await db.getProducts();
+    const product = products.find(p => p.id === Number(req.params.id));
+    if (!product) return res.status(404).json({ error: 'Producto o servicio no encontrado' });
+    const allowed = await isCollaborator(req.user.id, 'brand', product.brandId);
+    if (!allowed) {
+      return res.status(403).json({ error: 'No tienes permiso para eliminar productos de esta marca.' });
+    }
     const success = await db.deleteProduct(req.params.id);
     if (!success) return res.status(404).json({ error: 'Producto o servicio no encontrado' });
     res.json({ message: 'Producto/Servicio eliminado con éxito' });
@@ -265,11 +325,16 @@ app.get('/api/fairs', async (req, res) => {
   }
 });
 
-app.post('/api/fairs', async (req, res) => {
+app.post('/api/fairs', requireAuth, async (req, res) => {
   try {
     const { name, location, date, time, banner, description, lat, lng, organizerId } = req.body;
     if (!name || !location || !date) {
       return res.status(400).json({ error: 'Faltan campos requeridos (nombre, ubicación, fecha)' });
+    }
+    // Verificar que el usuario es colaborador del organizador
+    const allowed = await isCollaborator(req.user.id, 'organizer', organizerId);
+    if (!allowed) {
+      return res.status(403).json({ error: 'No tienes permiso para crear ferias con este organizador.' });
     }
     const fair = await db.addFair({
       name,
@@ -297,7 +362,7 @@ app.get('/api/bands', async (req, res) => {
   }
 });
 
-app.post('/api/bands', async (req, res) => {
+app.post('/api/bands', requireAuth, async (req, res) => {
   try {
     const { name, genre, members, description, image, mediaLink, personId } = req.body;
     if (!name || !genre) {
@@ -327,7 +392,7 @@ app.get('/api/brands', async (req, res) => {
   }
 });
 
-app.post('/api/brands', async (req, res) => {
+app.post('/api/brands', requireAuth, async (req, res) => {
   try {
     const { name, owner, category, description, logo, personId } = req.body;
     if (!name || !owner || !category) {
@@ -356,7 +421,7 @@ app.get('/api/organizers', async (req, res) => {
   }
 });
 
-app.post('/api/organizers', async (req, res) => {
+app.post('/api/organizers', requireAuth, async (req, res) => {
   try {
     const { name, owner, description, logo, personId } = req.body;
     if (!name || !owner) {
@@ -375,7 +440,7 @@ app.post('/api/organizers', async (req, res) => {
   }
 });
 
-app.put('/api/bands/:id', async (req, res) => {
+app.put('/api/bands/:id', requireAuth, requireOwnership('band'), async (req, res) => {
   try {
     const { id } = req.params;
     const { name, genre, members, description, image, mediaLink, gigs, slug } = req.body;
@@ -401,7 +466,7 @@ app.put('/api/bands/:id', async (req, res) => {
   }
 });
 
-app.put('/api/brands/:id', async (req, res) => {
+app.put('/api/brands/:id', requireAuth, requireOwnership('brand'), async (req, res) => {
   try {
     const { id } = req.params;
     const { name, owner, category, description, logo, slug, whatsappNumber } = req.body;
@@ -427,7 +492,7 @@ app.put('/api/brands/:id', async (req, res) => {
   }
 });
 
-app.put('/api/organizers/:id', async (req, res) => {
+app.put('/api/organizers/:id', requireAuth, requireOwnership('organizer'), async (req, res) => {
   try {
     const { id } = req.params;
     const { name, owner, description, logo } = req.body;
@@ -442,7 +507,7 @@ app.put('/api/organizers/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/bands/:id', async (req, res) => {
+app.delete('/api/bands/:id', requireAuth, requireCreator('band'), async (req, res) => {
   try {
     const success = await db.deleteBand(req.params.id);
     if (!success) return res.status(404).json({ error: 'Banda no encontrada' });
@@ -452,7 +517,7 @@ app.delete('/api/bands/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/brands/:id', async (req, res) => {
+app.delete('/api/brands/:id', requireAuth, requireCreator('brand'), async (req, res) => {
   try {
     const success = await db.deleteBrand(req.params.id);
     if (!success) return res.status(404).json({ error: 'Marca no encontrada' });
@@ -462,7 +527,7 @@ app.delete('/api/brands/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/organizers/:id', async (req, res) => {
+app.delete('/api/organizers/:id', requireAuth, requireCreator('organizer'), async (req, res) => {
   try {
     const success = await db.deleteOrganizer(req.params.id);
     if (!success) return res.status(404).json({ error: 'Organizador no encontrado' });
@@ -505,9 +570,13 @@ app.post('/api/people', async (req, res) => {
   }
 });
 
-app.put('/api/people/:id', async (req, res) => {
+app.put('/api/people/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
+    // Solo el propio usuario puede editar su perfil
+    if (req.user.id !== Number(id)) {
+      return res.status(403).json({ error: 'Solo puedes editar tu propio perfil.' });
+    }
     const { name, occupation, description, logo, brandIds, organizerIds, bandIds, username, lastName } = req.body;
     if (!name) {
       return res.status(400).json({ error: 'El nombre es requerido' });
@@ -541,7 +610,7 @@ app.put('/api/people/:id', async (req, res) => {
   }
 });
 
-app.post('/api/fairs/apply', async (req, res) => {
+app.post('/api/fairs/apply', requireAuth, async (req, res) => {
   try {
     const { fairId, type, id } = req.body;
     if (!fairId || !type || !id) {
@@ -549,6 +618,11 @@ app.post('/api/fairs/apply', async (req, res) => {
     }
     if (type !== 'brand' && type !== 'band') {
       return res.status(400).json({ error: 'Tipo de aplicación inválido (debe ser brand o band)' });
+    }
+    // Verificar que el usuario es colaborador de la entidad que postula
+    const allowed = await isCollaborator(req.user.id, type, id);
+    if (!allowed) {
+      return res.status(403).json({ error: 'No tienes permiso para postular esta entidad.' });
     }
     const result = await db.applyToFair(fairId, type, id);
     if (result.error) return res.status(404).json({ error: result.error });
@@ -567,11 +641,16 @@ app.get('/api/invitations', async (req, res) => {
   }
 });
 
-app.post('/api/invitations', async (req, res) => {
+app.post('/api/invitations', requireAuth, async (req, res) => {
   try {
     const { senderType, senderId, senderName, receiverPersonId, role } = req.body;
     if (!senderType || !senderId || !senderName || !receiverPersonId || !role) {
       return res.status(400).json({ error: 'Faltan campos requeridos (senderType, senderId, senderName, receiverPersonId, role)' });
+    }
+    // Verificar que el usuario es colaborador del sender
+    const allowed = await isCollaborator(req.user.id, senderType, senderId);
+    if (!allowed) {
+      return res.status(403).json({ error: 'No tienes permiso para enviar invitaciones en nombre de esta entidad.' });
     }
     const invitation = await db.addInvitation({ senderType, senderId, senderName, receiverPersonId, role });
     res.status(201).json(invitation);
@@ -580,7 +659,7 @@ app.post('/api/invitations', async (req, res) => {
   }
 });
 
-app.post('/api/invitations/:id/respond', async (req, res) => {
+app.post('/api/invitations/:id/respond', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const { accept } = req.body;
@@ -593,7 +672,7 @@ app.post('/api/invitations/:id/respond', async (req, res) => {
   }
 });
 
-app.post('/api/auth/register', async (req, res) => {
+app.post('/api/auth/register', authLimiter, async (req, res) => {
   try {
     const { name, email, password, occupation, description, logo, username, lastName } = req.body;
     if (!name || !email || !password) {
@@ -634,7 +713,7 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) {
@@ -681,7 +760,7 @@ app.get('/api/auth/me', async (req, res) => {
   }
 });
 
-app.post('/api/auth/forgot-password', async (req, res) => {
+app.post('/api/auth/forgot-password', authLimiter, async (req, res) => {
   try {
     const { email } = req.body;
     if (!email) {
@@ -817,6 +896,75 @@ function requireAuth(req, res, next) {
   } catch (error) {
     return res.status(401).json({ error: 'Token inválido o expirado.' });
   }
+}
+
+// ── Helpers de autorización por propiedad ──
+
+// Verifica si el usuario autenticado es colaborador de una entidad
+async function isCollaborator(personId, entityType, entityId) {
+  const people = await db.getPeople();
+  const person = people.find(p => p.id === Number(personId));
+  if (!person) return false;
+
+  if (entityType === 'brand') {
+    return person.brandIds && person.brandIds.includes(Number(entityId));
+  } else if (entityType === 'band') {
+    return person.bandIds && person.bandIds.includes(Number(entityId));
+  } else if (entityType === 'organizer') {
+    return person.organizerIds && person.organizerIds.includes(Number(entityId));
+  }
+  return false;
+}
+
+// Verifica si el usuario es el creador_original de una entidad
+async function isCreatorOriginal(personId, entityType, entityId) {
+  let entity;
+  if (entityType === 'brand') {
+    const brands = await db.getBrands();
+    entity = brands.find(b => b.id === Number(entityId));
+  } else if (entityType === 'band') {
+    const bands = await db.getBands();
+    entity = bands.find(b => b.id === Number(entityId));
+  } else if (entityType === 'organizer') {
+    const organizers = await db.getOrganizers();
+    entity = organizers.find(o => o.id === Number(entityId));
+  }
+  if (!entity || !entity.collaborators) return false;
+  return entity.collaborators.some(c => c.personId === Number(personId) && c.role === 'creador_original');
+}
+
+// Middleware factory: verifica propiedad de una entidad
+function requireOwnership(entityType) {
+  return async (req, res, next) => {
+    try {
+      const entityId = req.params.id;
+      const personId = req.user.id;
+      const allowed = await isCollaborator(personId, entityType, entityId);
+      if (!allowed) {
+        return res.status(403).json({ error: 'No tienes permiso para modificar este recurso.' });
+      }
+      next();
+    } catch (error) {
+      return res.status(500).json({ error: 'Error al verificar permisos.' });
+    }
+  };
+}
+
+// Middleware: verifica que el usuario es creador_original (para eliminar)
+function requireCreator(entityType) {
+  return async (req, res, next) => {
+    try {
+      const entityId = req.params.id;
+      const personId = req.user.id;
+      const allowed = await isCreatorOriginal(personId, entityType, entityId);
+      if (!allowed) {
+        return res.status(403).json({ error: 'Solo el creador original puede realizar esta acción.' });
+      }
+      next();
+    } catch (error) {
+      return res.status(500).json({ error: 'Error al verificar permisos de creador.' });
+    }
+  };
 }
 
 // ── ENDPOINTS DE AUTENTICACIÓN GOOGLE, FACEBOOK & CONFIGURACIÓN DE PERFIL ──
@@ -1158,12 +1306,19 @@ app.post('/api/auth/unlink-facebook', requireAuth, async (req, res) => {
   }
 });
 
-app.put('/api/fairs/:id', async (req, res) => {
+app.put('/api/fairs/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const { name, location, date, time, banner, description, lat, lng, organizerId, slug } = req.body;
     if (!name || !location || !date) {
       return res.status(400).json({ error: 'Faltan campos requeridos (nombre, ubicación, fecha)' });
+    }
+    // Verificar que el usuario es colaborador del organizador de esta feria
+    if (organizerId) {
+      const allowed = await isCollaborator(req.user.id, 'organizer', organizerId);
+      if (!allowed) {
+        return res.status(403).json({ error: 'No tienes permiso para editar esta feria.' });
+      }
     }
     let cleanSlug = undefined;
     if (slug !== undefined) {
@@ -1186,12 +1341,20 @@ app.put('/api/fairs/:id', async (req, res) => {
   }
 });
 
-app.post('/api/fairs/:id/respond', async (req, res) => {
+app.post('/api/fairs/:id/respond', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const { type, entityId, accept } = req.body;
     if (!type || !entityId || accept === undefined) {
       return res.status(400).json({ error: 'Faltan campos requeridos (type, entityId, accept)' });
+    }
+    // Verificar que el usuario es colaborador del organizador de esta feria
+    const fairs = await db.getFairs();
+    const fair = fairs.find(f => f.id === Number(id));
+    if (!fair) return res.status(404).json({ error: 'Feria no encontrada' });
+    const allowed = await isCollaborator(req.user.id, 'organizer', fair.organizerId);
+    if (!allowed) {
+      return res.status(403).json({ error: 'No tienes permiso para responder a postulaciones de esta feria.' });
     }
     const result = await db.respondToFairApplication(id, type, entityId, accept);
     res.json(result);
@@ -1200,7 +1363,7 @@ app.post('/api/fairs/:id/respond', async (req, res) => {
   }
 });
 
-app.put('/api/:entityType/:id/collaborators', async (req, res) => {
+app.put('/api/:entityType/:id/collaborators', requireAuth, async (req, res) => {
   try {
     const { entityType, id } = req.params;
     const { personId, role } = req.body;
@@ -1216,6 +1379,12 @@ app.put('/api/:entityType/:id/collaborators', async (req, res) => {
       return res.status(400).json({ error: 'Tipo de entidad no válido' });
     }
 
+    // Solo el creador puede cambiar roles
+    const allowed = await isCreatorOriginal(req.user.id, type, id);
+    if (!allowed) {
+      return res.status(403).json({ error: 'Solo el creador original puede cambiar roles de colaboradores.' });
+    }
+
     const result = await db.updateCollaboratorRole(type, id, personId, role);
     res.json(result);
   } catch (error) {
@@ -1223,7 +1392,7 @@ app.put('/api/:entityType/:id/collaborators', async (req, res) => {
   }
 });
 
-app.delete('/api/:entityType/:id/collaborators/:personId', async (req, res) => {
+app.delete('/api/:entityType/:id/collaborators/:personId', requireAuth, async (req, res) => {
   try {
     const { entityType, id, personId } = req.params;
     let type = entityType;
@@ -1233,6 +1402,12 @@ app.delete('/api/:entityType/:id/collaborators/:personId', async (req, res) => {
 
     if (type !== 'brand' && type !== 'band' && type !== 'organizer') {
       return res.status(400).json({ error: 'Tipo de entidad no válido' });
+    }
+
+    // Solo el creador puede remover colaboradores
+    const allowed = await isCreatorOriginal(req.user.id, type, id);
+    if (!allowed) {
+      return res.status(403).json({ error: 'Solo el creador original puede remover colaboradores.' });
     }
 
     const result = await db.removeCollaborator(type, id, personId);
