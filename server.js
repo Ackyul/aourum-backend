@@ -44,11 +44,49 @@ const upload = multer({
   },
 });
 
+const allowedOrigins = [
+  'http://localhost:3000',
+  'https://www.aourum.com',
+  'https://aourum.com'
+];
+
+if (process.env.FRONTEND_URL) {
+  const extraOrigins = process.env.FRONTEND_URL.split(',').map(url => url.trim());
+  extraOrigins.forEach(url => {
+    if (url && !allowedOrigins.includes(url)) {
+      allowedOrigins.push(url);
+    }
+  });
+}
+
 app.use(cors({
-  origin: [
-    'http://localhost:3000',
-    process.env.FRONTEND_URL
-  ].filter(Boolean),
+  origin: (origin, callback) => {
+    // Permitir solicitudes sin origen (como curl o llamadas del mismo servidor)
+    if (!origin) return callback(null, true);
+    
+    // Verificar coincidencia exacta con orígenes permitidos
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    
+    // Permitir IPs de red local, localhost y puertos dinámicos (ej: 192.168.x.x, 192.188.x.x)
+    const isLocal = /^(https?:\/\/)?(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|192\.188\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)(:\d+)?$/.test(origin);
+    if (isLocal) {
+      return callback(null, true);
+    }
+    
+    // Permitir cualquier subdominio de aourum.com
+    try {
+      const parsed = new URL(origin);
+      if (parsed.hostname === 'aourum.com' || parsed.hostname.endsWith('.aourum.com')) {
+        return callback(null, true);
+      }
+    } catch (e) {
+      // URL inválido
+    }
+    
+    callback(new Error(`Origen ${origin} no permitido por CORS`));
+  },
   credentials: true
 }));
 app.use(express.json({ limit: '10mb' }));
