@@ -1344,6 +1344,38 @@ app.post('/api/auth/unlink-facebook', requireAuth, async (req, res) => {
   }
 });
 
+app.delete('/api/auth/delete-account', requireAuth, async (req, res) => {
+  try {
+    const { password } = req.body;
+    const people = await db.getPeople();
+    const person = people.find(p => p.id === req.user.id);
+    if (!person) {
+      return res.status(404).json({ error: 'Usuario no encontrado.' });
+    }
+
+    // Si el usuario tiene una contraseña registrada, la verificamos
+    if (person.passwordHash) {
+      if (!password) {
+        return res.status(400).json({ error: 'Se requiere la contraseña para confirmar la eliminación de la cuenta.' });
+      }
+      const valid = await bcrypt.compare(password, person.passwordHash);
+      if (!valid) {
+        return res.status(401).json({ error: 'Contraseña incorrecta.' });
+      }
+    }
+
+    // Proceder con la eliminación en cascada
+    const success = await db.deletePerson(person.id);
+    if (!success) {
+      return res.status(500).json({ error: 'No se pudo eliminar la cuenta.' });
+    }
+
+    res.json({ message: 'Cuenta eliminada con éxito de forma permanente.' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.put('/api/fairs/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;

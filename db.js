@@ -578,6 +578,7 @@ async function getPeople() {
     username: p.username,
     email: p.email,
     passwordHash: p.password_hash,
+    hasPassword: !!p.password_hash,
     occupation: p.occupation,
     description: p.description,
     logo: p.logo,
@@ -632,6 +633,7 @@ async function addPerson(person) {
     username: data.username,
     email: data.email,
     passwordHash: data.password_hash,
+    hasPassword: !!data.password_hash,
     occupation: data.occupation,
     description: data.description,
     logo: data.logo,
@@ -724,6 +726,7 @@ async function updatePerson(id, updatedPerson) {
     username: data.username,
     email: data.email,
     passwordHash: data.password_hash,
+    hasPassword: !!data.password_hash,
     occupation: data.occupation,
     description: data.description,
     logo: data.logo,
@@ -1054,6 +1057,53 @@ async function isSlugUnique(table, slug, excludeId = null) {
   return !data;
 }
 
+async function deletePerson(id) {
+  const personId = Number(id);
+
+  // 1. Obtener todas las bandas, marcas y organizaciones para identificar la propiedad
+  const bands = await getBands();
+  const brands = await getBrands();
+  const organizers = await getOrganizers();
+
+  // Buscar entidades donde el usuario sea el creador original
+  const bandsToDelete = bands.filter(b => 
+    b.collaborators.some(c => c.personId === personId && c.role === 'creador_original')
+  );
+
+  const brandsToDelete = brands.filter(b => 
+    b.collaborators.some(c => c.personId === personId && c.role === 'creador_original')
+  );
+
+  const organizersToDelete = organizers.filter(o => 
+    o.collaborators.some(c => c.personId === personId && c.role === 'creador_original')
+  );
+
+  // 2. Eliminar en cascada las entidades que el usuario creó
+  for (const band of bandsToDelete) {
+    await deleteBand(band.id);
+  }
+  for (const brand of brandsToDelete) {
+    await deleteBrand(brand.id);
+  }
+  for (const org of organizersToDelete) {
+    await deleteOrganizer(org.id);
+  }
+
+  // 3. Eliminar relaciones restantes de colaborador simple
+  await supabase.from('person_bands').delete().eq('person_id', personId);
+  await supabase.from('person_brands').delete().eq('person_id', personId);
+  await supabase.from('person_organizers').delete().eq('person_id', personId);
+
+  // 4. Eliminar invitaciones recibidas
+  await supabase.from('invitations').delete().eq('receiver_person_id', personId);
+
+  // 5. Eliminar el registro del usuario de la tabla 'people'
+  const { data, error } = await supabase.from('people').delete().eq('id', personId).select();
+  if (error) throw error;
+
+  return data && data.length > 0;
+}
+
 module.exports = {
   getProducts,
   addProduct,
@@ -1078,6 +1128,7 @@ module.exports = {
   getPeople,
   addPerson,
   updatePerson,
+  deletePerson,
   applyToFair,
   getInvitations,
   addInvitation,
