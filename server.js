@@ -533,11 +533,22 @@ app.put('/api/brands/:id', requireAuth, requireOwnership('brand'), async (req, r
 app.put('/api/organizers/:id', requireAuth, requireOwnership('organizer'), async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, owner, description, logo } = req.body;
+    const { name, owner, description, logo, slug } = req.body;
     if (!name || !owner) {
       return res.status(400).json({ error: 'Faltan campos requeridos (nombre, dueño)' });
     }
-    const updated = await db.updateOrganizer(id, { name, owner, description, logo });
+    let cleanSlug = undefined;
+    if (slug !== undefined) {
+      cleanSlug = slug.toLowerCase().replace(/[^a-z0-9_]/g, '').trim();
+      if (!cleanSlug) {
+        return res.status(400).json({ error: 'El identificador de URL (slug) no puede estar vacío.' });
+      }
+      const unique = await db.isSlugUnique('organizers', cleanSlug, id);
+      if (!unique) {
+        return res.status(409).json({ error: 'El identificador de URL (slug) ya está en uso.' });
+      }
+    }
+    const updated = await db.updateOrganizer(id, { name, owner, description, logo, slug: cleanSlug });
     if (!updated) return res.status(404).json({ error: 'Organizador no encontrado' });
     res.json(updated);
   } catch (error) {
@@ -1406,6 +1417,26 @@ app.put('/api/fairs/:id', requireAuth, async (req, res) => {
     });
     if (!updated) return res.status(404).json({ error: 'Feria no encontrada' });
     res.json(updated);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/fairs/:id', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const fairs = await db.getFairs();
+    const fair = fairs.find(f => f.id === Number(id));
+    if (!fair) return res.status(404).json({ error: 'Feria no encontrada' });
+    
+    const allowed = await isCreatorOriginal(req.user.id, 'organizer', fair.organizerId);
+    if (!allowed) {
+      return res.status(403).json({ error: 'Solo el creador original del organizador puede eliminar esta feria.' });
+    }
+    
+    const success = await db.deleteFair(id);
+    if (!success) return res.status(500).json({ error: 'No se pudo eliminar la feria.' });
+    res.json({ message: 'Feria eliminada con éxito' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

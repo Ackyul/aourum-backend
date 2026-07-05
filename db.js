@@ -489,6 +489,7 @@ async function getOrganizers() {
     owner: o.owner,
     description: o.description,
     logo: o.logo,
+    slug: o.slug || '',
     personIds: o.person_organizers ? o.person_organizers.map(po => Number(po.person_id)) : [],
     collaborators: o.person_organizers ? o.person_organizers.map(po => ({ personId: Number(po.person_id), role: po.role || 'colaborador' })) : []
   }));
@@ -496,6 +497,7 @@ async function getOrganizers() {
 
 async function addOrganizer(organizer) {
   const personId = organizer.personId ? Number(organizer.personId) : null;
+  const slug = await generateUniqueSlug('organizers', organizer.name);
 
   const { data, error } = await supabase
     .from('organizers')
@@ -503,7 +505,8 @@ async function addOrganizer(organizer) {
       name: organizer.name,
       owner: organizer.owner || '',
       description: organizer.description || '',
-      logo: organizer.logo || ''
+      logo: organizer.logo || '',
+      slug: slug
     }])
     .select()
     .single();
@@ -523,6 +526,7 @@ async function addOrganizer(organizer) {
     owner: data.owner,
     description: data.description,
     logo: data.logo,
+    slug: data.slug || '',
     personIds: personId ? [personId] : [],
     collaborators: personId ? [{ personId, role: 'creador_original' }] : []
   };
@@ -535,7 +539,8 @@ async function updateOrganizer(id, updatedOrganizer) {
       name: updatedOrganizer.name,
       owner: updatedOrganizer.owner,
       description: updatedOrganizer.description,
-      logo: updatedOrganizer.logo
+      logo: updatedOrganizer.logo,
+      slug: updatedOrganizer.slug
     })
     .eq('id', Number(id))
     .select()
@@ -557,6 +562,7 @@ async function updateOrganizer(id, updatedOrganizer) {
     owner: data.owner,
     description: data.description,
     logo: data.logo,
+    slug: data.slug || '',
     personIds: junctions ? junctions.map(j => Number(j.person_id)) : [],
     collaborators: junctions ? junctions.map(j => ({ personId: Number(j.person_id), role: j.role || 'colaborador' })) : []
   };
@@ -958,6 +964,19 @@ async function updateFair(id, updatedFair) {
   return fairs.find(f => f.id === Number(id));
 }
 
+async function deleteFair(id) {
+  const fId = Number(id);
+  await supabase.from('fair_brands').delete().eq('fair_id', fId);
+  await supabase.from('fair_bands').delete().eq('fair_id', fId);
+  const { data, error } = await supabase
+    .from('fairs')
+    .delete()
+    .eq('id', fId)
+    .select();
+  if (error) throw error;
+  return data && data.length > 0;
+}
+
 async function respondToFairApplication(fairId, type, entityId, accept) {
   const fId = Number(fairId);
   const entId = Number(entityId);
@@ -1112,6 +1131,7 @@ module.exports = {
   getFairs,
   addFair,
   updateFair,
+  deleteFair,
   respondToFairApplication,
   getBands,
   addBand,

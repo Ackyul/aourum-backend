@@ -5,10 +5,10 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY
 
 async function test() {
   try {
-    const res = await supabase.from('organizers').delete().eq('id', 18).select();
-    console.log('Delete response:', res);
+    const { data: fairs, error } = await supabase.from('fairs').select('id, name, slug');
+    console.log('Fairs in db:', fairs);
   } catch (err) {
-    console.error('Thrown error:', err);
+    console.error('Error:', err);
   }
 }
 
