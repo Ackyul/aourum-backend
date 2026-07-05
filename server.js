@@ -284,8 +284,8 @@ app.post('/api/products', requireAuth, async (req, res) => {
     if (!name || !price || !category || !brandId) {
       return res.status(400).json({ error: 'Faltan campos requeridos (nombre, precio, categoría, brandId)' });
     }
-    // Verificar que el usuario es colaborador de la marca
-    const allowed = await isCollaborator(req.user.id, 'brand', brandId);
+    // Verificar que el usuario es creador original de la marca
+    const allowed = await isCreatorOriginal(req.user.id, 'brand', brandId);
     if (!allowed) {
       return res.status(403).json({ error: 'No tienes permiso para agregar productos a esta marca.' });
     }
@@ -313,8 +313,8 @@ app.put('/api/products/:id', requireAuth, async (req, res) => {
     if (!name || !price || !category || !brandId) {
       return res.status(400).json({ error: 'Faltan campos requeridos para la actualización (nombre, precio, categoría, brandId)' });
     }
-    // Verificar que el usuario es colaborador de la marca del producto
-    const allowed = await isCollaborator(req.user.id, 'brand', brandId);
+    // Verificar que el usuario es creador original de la marca del producto
+    const allowed = await isCreatorOriginal(req.user.id, 'brand', brandId);
     if (!allowed) {
       return res.status(403).json({ error: 'No tienes permiso para editar productos de esta marca.' });
     }
@@ -342,7 +342,7 @@ app.delete('/api/products/:id', requireAuth, async (req, res) => {
     const products = await db.getProducts();
     const product = products.find(p => p.id === Number(req.params.id));
     if (!product) return res.status(404).json({ error: 'Producto o servicio no encontrado' });
-    const allowed = await isCollaborator(req.user.id, 'brand', product.brandId);
+    const allowed = await isCreatorOriginal(req.user.id, 'brand', product.brandId);
     if (!allowed) {
       return res.status(403).json({ error: 'No tienes permiso para eliminar productos de esta marca.' });
     }
@@ -657,8 +657,8 @@ app.post('/api/fairs/apply', requireAuth, async (req, res) => {
     if (type !== 'brand' && type !== 'band') {
       return res.status(400).json({ error: 'Tipo de aplicación inválido (debe ser brand o band)' });
     }
-    // Verificar que el usuario es colaborador de la entidad que postula
-    const allowed = await isCollaborator(req.user.id, type, id);
+    // Verificar que el usuario es creador original de la entidad que postula
+    const allowed = await isCreatorOriginal(req.user.id, type, id);
     if (!allowed) {
       return res.status(403).json({ error: 'No tienes permiso para postular esta entidad.' });
     }
@@ -685,8 +685,8 @@ app.post('/api/invitations', requireAuth, async (req, res) => {
     if (!senderType || !senderId || !senderName || !receiverPersonId || !role) {
       return res.status(400).json({ error: 'Faltan campos requeridos (senderType, senderId, senderName, receiverPersonId, role)' });
     }
-    // Verificar que el usuario es colaborador del sender
-    const allowed = await isCollaborator(req.user.id, senderType, senderId);
+    // Verificar que el usuario es creador original del sender
+    const allowed = await isCreatorOriginal(req.user.id, senderType, senderId);
     if (!allowed) {
       return res.status(403).json({ error: 'No tienes permiso para enviar invitaciones en nombre de esta entidad.' });
     }
@@ -1422,7 +1422,7 @@ app.post('/api/fairs/:id/respond', requireAuth, async (req, res) => {
     const fairs = await db.getFairs();
     const fair = fairs.find(f => f.id === Number(id));
     if (!fair) return res.status(404).json({ error: 'Feria no encontrada' });
-    const allowed = await isCollaborator(req.user.id, 'organizer', fair.organizerId);
+    const allowed = await isCreatorOriginal(req.user.id, 'organizer', fair.organizerId);
     if (!allowed) {
       return res.status(403).json({ error: 'No tienes permiso para responder a postulaciones de esta feria.' });
     }
