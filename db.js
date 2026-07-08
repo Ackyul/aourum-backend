@@ -574,7 +574,7 @@ async function getPeople() {
     .select(`
       *,
       person_brands (brand_id, role),
-      person_organizers (organizer_id),
+      person_organizers (organizer_id, role),
       person_bands (band_id)
     `);
   if (error) throw error;
@@ -594,6 +594,7 @@ async function getPeople() {
     brandIds: p.person_brands ? p.person_brands.map(b => Number(b.brand_id)) : [],
     brandRoles: p.person_brands ? p.person_brands.map(b => ({ brandId: Number(b.brand_id), role: b.role || 'colaborador' })) : [],
     organizerIds: p.person_organizers ? p.person_organizers.map(o => Number(o.organizer_id)) : [],
+    organizerRoles: p.person_organizers ? p.person_organizers.map(o => ({ organizerId: Number(o.organizer_id), role: o.role || 'colaborador' })) : [],
     bandIds: p.person_bands ? p.person_bands.map(b => Number(b.band_id)) : []
   }));
 }
