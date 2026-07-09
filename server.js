@@ -124,6 +124,92 @@ app.use((req, res, next) => {
   next();
 });
 
+// ── Caché en memoria para optimizar peticiones y proteger Supabase ──
+const cache = {};
+const DEFAULT_CACHE_DURATION = 15000; // 15 segundos
+
+function clearCache(patterns) {
+  if (!Array.isArray(patterns)) {
+    patterns = [patterns];
+  }
+  const keys = Object.keys(cache);
+  keys.forEach(key => {
+    if (patterns.some(pattern => key.includes(pattern))) {
+      console.log(`[Caché INVALIDADA] Eliminada clave: ${key}`);
+      delete cache[key];
+    }
+  });
+}
+
+// Middleware global para cachear lecturas (GET)
+app.use((req, res, next) => {
+  if (req.method === 'GET') {
+    const cacheableRoutes = [
+      '/api/products',
+      '/api/fairs',
+      '/api/bands',
+      '/api/brands',
+      '/api/organizers',
+      '/api/people',
+      '/api/invitations'
+    ];
+    
+    const isCacheable = cacheableRoutes.some(route => req.path.startsWith(route));
+    
+    if (isCacheable) {
+      const key = req.originalUrl || req.url;
+      const cached = cache[key];
+      
+      if (cached && (Date.now() - cached.timestamp < DEFAULT_CACHE_DURATION)) {
+        console.log(`[Caché HIT] Respondiendo ${key} desde caché en memoria`);
+        return res.json(cached.data);
+      }
+      
+      const originalJson = res.json;
+      res.json = function(body) {
+        if (res.statusCode === 200) {
+          cache[key] = {
+            data: body,
+            timestamp: Date.now()
+          };
+        }
+        return originalJson.call(this, body);
+      };
+    }
+  }
+  next();
+});
+
+// Middleware global para invalidar caché en escrituras (POST, PUT, DELETE)
+app.use((req, res, next) => {
+  if (['POST', 'PUT', 'DELETE'].includes(req.method)) {
+    const originalJson = res.json;
+    res.json = function(body) {
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        if (req.path.startsWith('/api/products')) {
+          clearCache('products');
+        } else if (req.path.startsWith('/api/fairs')) {
+          clearCache('fairs');
+        } else if (req.path.startsWith('/api/bands')) {
+          clearCache('bands');
+        } else if (req.path.startsWith('/api/brands')) {
+          clearCache('brands');
+        } else if (req.path.startsWith('/api/organizers')) {
+          clearCache('organizers');
+        } else if (req.path.startsWith('/api/people') || req.path.startsWith('/api/auth/register') || req.path.startsWith('/api/auth/delete-account')) {
+          clearCache('people');
+        } else if (req.path.startsWith('/api/invitations')) {
+          clearCache('invitations');
+        } else if (req.path.includes('/collaborators')) {
+          clearCache(['brands', 'organizers', 'bands']);
+        }
+      }
+      return originalJson.call(this, body);
+    };
+  }
+  next();
+});
+
 app.get('/api/health', (req, res) => {
   res.json({ status: 'AOURUM API is running' });
 });
