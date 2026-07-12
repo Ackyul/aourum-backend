@@ -933,7 +933,7 @@ app.post('/api/auth/forgot-password', authLimiter, async (req, res) => {
             <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
               <h2 style="color: #d4af37; text-align: center;">AOURUM</h2>
               <p>Hola, <strong>${person.name}</strong>:</p>
-              <p>Has solicitado restablecer tu contraseña en AOURUM, el mercado cultural de Arequipa.</p>
+              <p>Has solicitado restablecer tu contraseña en AOURUM, el nodo central del talento local.</p>
               <p>Haz clic en el siguiente botón para establecer una nueva contraseña. Este enlace expira en 15 minutos:</p>
               <div style="text-align: center; margin: 30px 0;">
                 <a href="${resetUrl}" style="background: linear-gradient(135deg, #d4af37, #aa7c11); color: #1c1c1e; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Restablecer Contraseña</a>
