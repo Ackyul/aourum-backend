@@ -752,12 +752,32 @@ async function applyToFair(fairId, type, id) {
 
   const { data: fairData, error: fairError } = await supabase
     .from('fairs')
-    .select('id')
+    .select('id, description')
     .eq('id', fId)
     .single();
 
   if (fairError || !fairData) {
     return { error: 'Feria no encontrada' };
+  }
+
+  let allowed = true;
+  if (fairData.description) {
+    try {
+      const parsed = JSON.parse(fairData.description);
+      const fairType = parsed.fair_type || "both";
+      if (type === 'brand' && fairType === 'only_bands') {
+        allowed = false;
+      }
+      if (type === 'band' && fairType === 'only_brands') {
+        allowed = false;
+      }
+    } catch (e) {
+      // Ignore if description is not a valid JSON string
+    }
+  }
+
+  if (!allowed) {
+    return { error: `Este evento no acepta postulaciones de tipo ${type === 'brand' ? 'marcas' : 'bandas'}.` };
   }
 
   if (type === 'brand') {
