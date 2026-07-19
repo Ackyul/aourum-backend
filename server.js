@@ -6,6 +6,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { Resend } = require('resend');
 const rateLimit = require('express-rate-limit');
+const helmet = require('helmet');
+const hpp = require('hpp');
 require('dotenv').config();
 
 const db = require('./db');
@@ -24,6 +26,13 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+app.disable('x-powered-by');
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
+app.use(hpp());
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -672,7 +681,7 @@ app.delete('/api/organizers/:id', requireAuth, requireCreator('organizer'), asyn
 app.get('/api/people', async (req, res) => {
   try {
     const people = await db.getPeople();
-    const safePeople = people.map(({ passwordHash, ...safe }) => safe);
+    const safePeople = people.map(({ passwordHash, email, googleId, facebookId, ...safe }) => safe);
     res.json(safePeople);
   } catch (error) {
     res.status(500).json({ error: error.message });
