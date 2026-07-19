@@ -80,9 +80,16 @@ async function addProduct(product) {
   if (product.category) {
     const trimmed = product.category.trim();
     try {
-      const allProducts = await getProducts();
-      const match = allProducts.find(p => p.category && p.category.trim().toLowerCase() === trimmed.toLowerCase());
-      cleanCategory = match ? match.category.trim() : trimmed;
+      const { data: matches, error } = await supabase
+        .from('products')
+        .select('category')
+        .ilike('category', trimmed)
+        .limit(1);
+      if (!error && matches && matches.length > 0) {
+        cleanCategory = matches[0].category.trim();
+      } else {
+        cleanCategory = trimmed;
+      }
     } catch (err) {
       cleanCategory = trimmed;
     }
@@ -121,9 +128,16 @@ async function updateProduct(id, updatedProduct) {
   if (updatedProduct.category) {
     const trimmed = updatedProduct.category.trim();
     try {
-      const allProducts = await getProducts();
-      const match = allProducts.find(p => p.category && p.category.trim().toLowerCase() === trimmed.toLowerCase());
-      cleanCategory = match ? match.category.trim() : trimmed;
+      const { data: matches, error } = await supabase
+        .from('products')
+        .select('category')
+        .ilike('category', trimmed)
+        .limit(1);
+      if (!error && matches && matches.length > 0) {
+        cleanCategory = matches[0].category.trim();
+      } else {
+        cleanCategory = trimmed;
+      }
     } catch (err) {
       cleanCategory = trimmed;
     }
@@ -1100,33 +1114,27 @@ async function isSlugUnique(table, slug, excludeId = null) {
 async function deletePerson(id) {
   const personId = Number(id);
 
-  // 1. Obtener todas las bandas, marcas y organizaciones para identificar la propiedad
-  const bands = await getBands();
-  const brands = await getBrands();
-  const organizers = await getOrganizers();
+  // 1. Obtener relaciones donde el usuario sea el creador original
+  const { data: juncBands, error: bErr } = await supabase.from('person_bands').select('band_id').eq('person_id', personId).eq('role', 'creador_original');
+  if (bErr) throw bErr;
+  const { data: juncBrands, error: brErr } = await supabase.from('person_brands').select('brand_id').eq('person_id', personId).eq('role', 'creador_original');
+  if (brErr) throw brErr;
+  const { data: juncOrgs, error: oErr } = await supabase.from('person_organizers').select('organizer_id').eq('person_id', personId).eq('role', 'creador_original');
+  if (oErr) throw oErr;
 
-  // Buscar entidades donde el usuario sea el creador original
-  const bandsToDelete = bands.filter(b => 
-    b.collaborators.some(c => c.personId === personId && c.role === 'creador_original')
-  );
-
-  const brandsToDelete = brands.filter(b => 
-    b.collaborators.some(c => c.personId === personId && c.role === 'creador_original')
-  );
-
-  const organizersToDelete = organizers.filter(o => 
-    o.collaborators.some(c => c.personId === personId && c.role === 'creador_original')
-  );
+  const bandsToDelete = juncBands ? juncBands.map(b => Number(b.band_id)) : [];
+  const brandsToDelete = juncBrands ? juncBrands.map(b => Number(b.brand_id)) : [];
+  const organizersToDelete = juncOrgs ? juncOrgs.map(o => Number(o.organizer_id)) : [];
 
   // 2. Eliminar en cascada las entidades que el usuario creó
-  for (const band of bandsToDelete) {
-    await deleteBand(band.id);
+  for (const bandId of bandsToDelete) {
+    await deleteBand(bandId);
   }
-  for (const brand of brandsToDelete) {
-    await deleteBrand(brand.id);
+  for (const brandId of brandsToDelete) {
+    await deleteBrand(brandId);
   }
-  for (const org of organizersToDelete) {
-    await deleteOrganizer(org.id);
+  for (const orgId of organizersToDelete) {
+    await deleteOrganizer(orgId);
   }
 
   // 3. Eliminar relaciones restantes de colaborador simple
@@ -1144,29 +1152,450 @@ async function deletePerson(id) {
   return data && data.length > 0;
 }
 
+// ── CONSULTAS OPTIMIZADAS DIRECTAS (O(1)) ──
+
+async function getProductById(id) {
+  const { data, error } = await supabase
+    .from('products')
+    .select('*')
+    .eq('id', Number(id))
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+  return {
+    ...data,
+    brandId: data.brand_id ? Number(data.brand_id) : null,
+    price: Number(data.price),
+    priceAourum: data.price_aourum ? Number(data.price_aourum) : null,
+    slug: data.slug || null
+  };
+}
+
+async function getProductBySlug(slug) {
+  if (!slug) return null;
+  const { data, error } = await supabase
+    .from('products')
+    .select('*')
+    .eq('slug', slug)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+  return {
+    ...data,
+    brandId: data.brand_id ? Number(data.brand_id) : null,
+    price: Number(data.price),
+    priceAourum: data.price_aourum ? Number(data.price_aourum) : null,
+    slug: data.slug || null
+  };
+}
+
+async function getPersonById(id) {
+  const { data, error } = await supabase
+    .from('people')
+    .select(`
+      *,
+      person_brands (brand_id, role),
+      person_organizers (organizer_id, role),
+      person_bands (band_id)
+    `)
+    .eq('id', Number(id))
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+  return {
+    id: Number(data.id),
+    name: data.name,
+    username: data.username,
+    email: data.email,
+    passwordHash: data.password_hash,
+    hasPassword: !!data.password_hash,
+    occupation: data.occupation,
+    description: data.description,
+    logo: data.logo,
+    lastName: data.last_name || null,
+    googleId: data.google_id || null,
+    facebookId: data.facebook_id || null,
+    brandIds: data.person_brands ? data.person_brands.map(b => Number(b.brand_id)) : [],
+    brandRoles: data.person_brands ? data.person_brands.map(b => ({ brandId: Number(b.brand_id), role: b.role || 'colaborador' })) : [],
+    organizerIds: data.person_organizers ? data.person_organizers.map(o => Number(o.organizer_id)) : [],
+    organizerRoles: data.person_organizers ? data.person_organizers.map(o => ({ organizerId: Number(o.organizer_id), role: o.role || 'colaborador' })) : [],
+    bandIds: data.person_bands ? data.person_bands.map(b => Number(b.band_id)) : []
+  };
+}
+
+async function getPersonByEmail(email) {
+  if (!email) return null;
+  const emailLower = email.toLowerCase().trim();
+  const { data, error } = await supabase
+    .from('people')
+    .select(`
+      *,
+      person_brands (brand_id, role),
+      person_organizers (organizer_id, role),
+      person_bands (band_id)
+    `)
+    .eq('email', emailLower)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+  return {
+    id: Number(data.id),
+    name: data.name,
+    username: data.username,
+    email: data.email,
+    passwordHash: data.password_hash,
+    hasPassword: !!data.password_hash,
+    occupation: data.occupation,
+    description: data.description,
+    logo: data.logo,
+    lastName: data.last_name || null,
+    googleId: data.google_id || null,
+    facebookId: data.facebook_id || null,
+    brandIds: data.person_brands ? data.person_brands.map(b => Number(b.brand_id)) : [],
+    brandRoles: data.person_brands ? data.person_brands.map(b => ({ brandId: Number(b.brand_id), role: b.role || 'colaborador' })) : [],
+    organizerIds: data.person_organizers ? data.person_organizers.map(o => Number(o.organizer_id)) : [],
+    organizerRoles: data.person_organizers ? data.person_organizers.map(o => ({ organizerId: Number(o.organizer_id), role: o.role || 'colaborador' })) : [],
+    bandIds: data.person_bands ? data.person_bands.map(b => Number(b.band_id)) : []
+  };
+}
+
+async function getPersonByUsername(username) {
+  if (!username) return null;
+  const cleanUsername = username.toLowerCase().trim();
+  const { data, error } = await supabase
+    .from('people')
+    .select(`
+      *,
+      person_brands (brand_id, role),
+      person_organizers (organizer_id, role),
+      person_bands (band_id)
+    `)
+    .eq('username', cleanUsername)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+  return {
+    id: Number(data.id),
+    name: data.name,
+    username: data.username,
+    email: data.email,
+    passwordHash: data.password_hash,
+    hasPassword: !!data.password_hash,
+    occupation: data.occupation,
+    description: data.description,
+    logo: data.logo,
+    lastName: data.last_name || null,
+    googleId: data.google_id || null,
+    facebookId: data.facebook_id || null,
+    brandIds: data.person_brands ? data.person_brands.map(b => Number(b.brand_id)) : [],
+    brandRoles: data.person_brands ? data.person_brands.map(b => ({ brandId: Number(b.brand_id), role: b.role || 'colaborador' })) : [],
+    organizerIds: data.person_organizers ? data.person_organizers.map(o => Number(o.organizer_id)) : [],
+    organizerRoles: data.person_organizers ? data.person_organizers.map(o => ({ organizerId: Number(o.organizer_id), role: o.role || 'colaborador' })) : [],
+    bandIds: data.person_bands ? data.person_bands.map(b => Number(b.band_id)) : []
+  };
+}
+
+async function getPersonByGoogleId(googleId) {
+  if (!googleId) return null;
+  const { data, error } = await supabase
+    .from('people')
+    .select(`
+      *,
+      person_brands (brand_id, role),
+      person_organizers (organizer_id, role),
+      person_bands (band_id)
+    `)
+    .eq('google_id', googleId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+  return {
+    id: Number(data.id),
+    name: data.name,
+    username: data.username,
+    email: data.email,
+    passwordHash: data.password_hash,
+    hasPassword: !!data.password_hash,
+    occupation: data.occupation,
+    description: data.description,
+    logo: data.logo,
+    lastName: data.last_name || null,
+    googleId: data.google_id || null,
+    facebookId: data.facebook_id || null,
+    brandIds: data.person_brands ? data.person_brands.map(b => Number(b.brand_id)) : [],
+    brandRoles: data.person_brands ? data.person_brands.map(b => ({ brandId: Number(b.brand_id), role: b.role || 'colaborador' })) : [],
+    organizerIds: data.person_organizers ? data.person_organizers.map(o => Number(o.organizer_id)) : [],
+    organizerRoles: data.person_organizers ? data.person_organizers.map(o => ({ organizerId: Number(o.organizer_id), role: o.role || 'colaborador' })) : [],
+    bandIds: data.person_bands ? data.person_bands.map(b => Number(b.band_id)) : []
+  };
+}
+
+async function getPersonByFacebookId(facebookId) {
+  if (!facebookId) return null;
+  const { data, error } = await supabase
+    .from('people')
+    .select(`
+      *,
+      person_brands (brand_id, role),
+      person_organizers (organizer_id, role),
+      person_bands (band_id)
+    `)
+    .eq('facebook_id', facebookId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+  return {
+    id: Number(data.id),
+    name: data.name,
+    username: data.username,
+    email: data.email,
+    passwordHash: data.password_hash,
+    hasPassword: !!data.password_hash,
+    occupation: data.occupation,
+    description: data.description,
+    logo: data.logo,
+    lastName: data.last_name || null,
+    googleId: data.google_id || null,
+    facebookId: data.facebook_id || null,
+    brandIds: data.person_brands ? data.person_brands.map(b => Number(b.brand_id)) : [],
+    brandRoles: data.person_brands ? data.person_brands.map(b => ({ brandId: Number(b.brand_id), role: b.role || 'colaborador' })) : [],
+    organizerIds: data.person_organizers ? data.person_organizers.map(o => Number(o.organizer_id)) : [],
+    organizerRoles: data.person_organizers ? data.person_organizers.map(o => ({ organizerId: Number(o.organizer_id), role: o.role || 'colaborador' })) : [],
+    bandIds: data.person_bands ? data.person_bands.map(b => Number(b.band_id)) : []
+  };
+}
+
+async function getBrandById(id) {
+  const { data, error } = await supabase
+    .from('brands')
+    .select(`
+      *,
+      person_brands (person_id, role)
+    `)
+    .eq('id', Number(id))
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+  return {
+    id: Number(data.id),
+    name: data.name,
+    owner: data.owner,
+    category: data.category,
+    description: data.description,
+    logo: data.logo,
+    slug: data.slug,
+    whatsappNumber: data.whatsapp_number || null,
+    personIds: data.person_brands ? data.person_brands.map(pb => Number(pb.person_id)) : [],
+    collaborators: data.person_brands ? data.person_brands.map(pb => ({ personId: Number(pb.person_id), role: pb.role || 'colaborador' })) : []
+  };
+}
+
+async function getBandById(id) {
+  const { data, error } = await supabase
+    .from('bands')
+    .select(`
+      *,
+      person_bands (person_id, role)
+    `)
+    .eq('id', Number(id))
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+  return {
+    id: Number(data.id),
+    name: data.name,
+    genre: data.genre,
+    members: Number(data.members),
+    description: data.description,
+    image: data.image,
+    mediaLink: data.media_link,
+    slug: data.slug,
+    gigs: data.gigs || [],
+    personIds: data.person_bands ? data.person_bands.map(pb => Number(pb.person_id)) : [],
+    collaborators: data.person_bands ? data.person_bands.map(pb => ({ personId: Number(pb.person_id), role: pb.role || 'colaborador' })) : []
+  };
+}
+
+async function getOrganizerById(id) {
+  const { data, error } = await supabase
+    .from('organizers')
+    .select(`
+      *,
+      person_organizers (person_id, role)
+    `)
+    .eq('id', Number(id))
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+  return {
+    id: Number(data.id),
+    name: data.name,
+    owner: data.owner,
+    description: data.description,
+    logo: data.logo,
+    slug: data.slug || '',
+    personIds: data.person_organizers ? data.person_organizers.map(po => Number(po.person_id)) : [],
+    collaborators: data.person_organizers ? data.person_organizers.map(po => ({ personId: Number(po.person_id), role: po.role || 'colaborador' })) : []
+  };
+}
+
+async function getFairById(id) {
+  const { data, error } = await supabase
+    .from('fairs')
+    .select(`
+      *,
+      fair_brands (brand_id, status),
+      fair_bands (band_id, status)
+    `)
+    .eq('id', Number(id))
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+
+  const acceptedBrands = [];
+  const pendingBrands = [];
+  const acceptedBands = [];
+  const pendingBands = [];
+
+  if (data.fair_brands) {
+    data.fair_brands.forEach(fb => {
+      const bId = Number(fb.brand_id);
+      if (fb.status === 'accepted') {
+        acceptedBrands.push(bId);
+      } else {
+        pendingBrands.push(bId);
+      }
+    });
+  }
+
+  if (data.fair_bands) {
+    data.fair_bands.forEach(fb => {
+      const bId = Number(fb.band_id);
+      if (fb.status === 'accepted') {
+        acceptedBands.push(bId);
+      } else {
+        pendingBands.push(bId);
+      }
+    });
+  }
+
+  return {
+    id: Number(data.id),
+    name: data.name,
+    location: data.location,
+    date: data.date,
+    time: data.time,
+    banner: data.banner,
+    description: data.description,
+    slug: data.slug,
+    lat: data.lat ? Number(data.lat) : -16.39889,
+    lng: data.lng ? Number(data.lng) : -71.53694,
+    organizerId: data.organizer_id ? Number(data.organizer_id) : null,
+    acceptedBrands,
+    pendingBrands,
+    acceptedBands,
+    pendingBands
+  };
+}
+
+async function isCollaborator(personId, entityType, entityId) {
+  let table = '';
+  let idCol = '';
+  if (entityType === 'brand') {
+    table = 'person_brands';
+    idCol = 'brand_id';
+  } else if (entityType === 'band') {
+    table = 'person_bands';
+    idCol = 'band_id';
+  } else if (entityType === 'organizer') {
+    table = 'person_organizers';
+    idCol = 'organizer_id';
+  } else {
+    return false;
+  }
+  const { data, error } = await supabase
+    .from(table)
+    .select('person_id')
+    .eq('person_id', Number(personId))
+    .eq(idCol, Number(entityId))
+    .maybeSingle();
+
+  if (error) return false;
+  return !!data;
+}
+
+async function isCreatorOriginal(personId, entityType, entityId) {
+  let table = '';
+  let idCol = '';
+  if (entityType === 'brand') {
+    table = 'person_brands';
+    idCol = 'brand_id';
+  } else if (entityType === 'band') {
+    table = 'person_bands';
+    idCol = 'band_id';
+  } else if (entityType === 'organizer') {
+    table = 'person_organizers';
+    idCol = 'organizer_id';
+  } else {
+    return false;
+  }
+  const { data, error } = await supabase
+    .from(table)
+    .select('person_id')
+    .eq('person_id', Number(personId))
+    .eq(idCol, Number(entityId))
+    .eq('role', 'creador_original')
+    .maybeSingle();
+
+  if (error) return false;
+  return !!data;
+}
+
 module.exports = {
   getProducts,
+  getProductById,
+  getProductBySlug,
   addProduct,
   updateProduct,
   deleteProduct,
   getFairs,
+  getFairById,
   addFair,
   updateFair,
   deleteFair,
   respondToFairApplication,
   getBands,
+  getBandById,
   addBand,
   updateBand,
   deleteBand,
   getBrands,
+  getBrandById,
   addBrand,
   updateBrand,
   deleteBrand,
   getOrganizers,
+  getOrganizerById,
   addOrganizer,
   updateOrganizer,
   deleteOrganizer,
   getPeople,
+  getPersonById,
+  getPersonByEmail,
+  getPersonByUsername,
+  getPersonByGoogleId,
+  getPersonByFacebookId,
   addPerson,
   updatePerson,
   deletePerson,
@@ -1176,6 +1605,8 @@ module.exports = {
   respondToInvitation,
   updateCollaboratorRole,
   removeCollaborator,
-  isSlugUnique
+  isSlugUnique,
+  isCollaborator,
+  isCreatorOriginal
 };
 

@@ -354,8 +354,7 @@ app.get('/api/products', async (req, res) => {
 app.get('/api/products/by-slug/:slug', async (req, res) => {
   try {
     const { slug } = req.params;
-    const products = await db.getProducts();
-    const product = products.find(p => p.slug === slug);
+    const product = await db.getProductBySlug(slug);
     if (!product) return res.status(404).json({ error: 'Producto no encontrado' });
     res.json(product);
   } catch (error) {
@@ -424,9 +423,7 @@ app.put('/api/products/:id', requireAuth, async (req, res) => {
 
 app.delete('/api/products/:id', requireAuth, async (req, res) => {
   try {
-    // Buscar el producto para verificar su brandId
-    const products = await db.getProducts();
-    const product = products.find(p => p.id === Number(req.params.id));
+    const product = await db.getProductById(req.params.id);
     if (!product) return res.status(404).json({ error: 'Producto o servicio no encontrado' });
     const allowed = await isCreatorOriginal(req.user.id, 'brand', product.brandId);
     if (!allowed) {
@@ -719,9 +716,8 @@ app.put('/api/people/:id', requireAuth, async (req, res) => {
 
     const cleanUsername = username ? username.toLowerCase().replace(/[^a-z0-9_]/g, '').trim() : '';
     if (cleanUsername) {
-      const people = await db.getPeople();
-      const existingUsername = people.find(p => p.username && p.username.toLowerCase() === cleanUsername && p.id !== Number(id));
-      if (existingUsername) {
+      const existingUsername = await db.getPersonByUsername(cleanUsername);
+      if (existingUsername && existingUsername.id !== Number(id)) {
         return res.status(409).json({ error: 'Ya existe una cuenta con ese nombre de usuario.' });
       }
     }
@@ -816,14 +812,13 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
     const emailLower = email.toLowerCase().trim();
     const cleanUsername = username ? username.toLowerCase().replace(/[^a-z0-9_]/g, '').trim() : '';
 
-    const people = await db.getPeople();
-    const existing = people.find(p => p.email && p.email.toLowerCase() === emailLower);
+    const existing = await db.getPersonByEmail(emailLower);
     if (existing) {
       return res.status(409).json({ error: 'Ya existe una cuenta con ese correo.' });
     }
 
     if (cleanUsername) {
-      const existingUsername = people.find(p => p.username && p.username.toLowerCase() === cleanUsername);
+      const existingUsername = await db.getPersonByUsername(cleanUsername);
       if (existingUsername) {
         return res.status(409).json({ error: 'Ya existe una cuenta con ese nombre de usuario.' });
       }
@@ -855,8 +850,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
       return res.status(400).json({ error: 'Email y contraseña son requeridos.' });
     }
     const emailLower = email.toLowerCase().trim();
-    const people = await db.getPeople();
-    const person = people.find(p => p.email && p.email.toLowerCase() === emailLower);
+    const person = await db.getPersonByEmail(emailLower);
     if (!person) {
       return res.status(401).json({ error: 'No existe una cuenta con ese correo.' });
     }
@@ -883,8 +877,7 @@ app.get('/api/auth/me', async (req, res) => {
     }
     const token = authHeader.split(' ')[1];
     const payload = jwt.verify(token, JWT_SECRET);
-    const people = await db.getPeople();
-    const person = people.find(p => p.id === payload.id);
+    const person = await db.getPersonById(payload.id);
     if (!person) {
       return res.status(404).json({ error: 'Usuario no encontrado.' });
     }
@@ -902,8 +895,7 @@ app.post('/api/auth/forgot-password', authLimiter, async (req, res) => {
       return res.status(400).json({ error: 'El correo electrónico es requerido.' });
     }
     const emailLower = email.toLowerCase().trim();
-    const people = await db.getPeople();
-    const person = people.find(p => p.email && p.email.toLowerCase() === emailLower);
+    const person = await db.getPersonByEmail(emailLower);
     
     if (!person) {
       return res.status(404).json({ error: 'No existe una cuenta con ese correo.' });
@@ -972,8 +964,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
     }
 
     const emailLower = email.toLowerCase().trim();
-    const people = await db.getPeople();
-    const person = people.find(p => p.email && p.email.toLowerCase() === emailLower);
+    const person = await db.getPersonByEmail(emailLower);
 
     if (!person) {
       return res.status(404).json({ error: 'Usuario no encontrado.' });
@@ -1037,35 +1028,12 @@ function requireAuth(req, res, next) {
 
 // Verifica si el usuario autenticado es colaborador de una entidad
 async function isCollaborator(personId, entityType, entityId) {
-  const people = await db.getPeople();
-  const person = people.find(p => p.id === Number(personId));
-  if (!person) return false;
-
-  if (entityType === 'brand') {
-    return person.brandIds && person.brandIds.includes(Number(entityId));
-  } else if (entityType === 'band') {
-    return person.bandIds && person.bandIds.includes(Number(entityId));
-  } else if (entityType === 'organizer') {
-    return person.organizerIds && person.organizerIds.includes(Number(entityId));
-  }
-  return false;
+  return await db.isCollaborator(personId, entityType, entityId);
 }
 
 // Verifica si el usuario es el creador_original de una entidad
 async function isCreatorOriginal(personId, entityType, entityId) {
-  let entity;
-  if (entityType === 'brand') {
-    const brands = await db.getBrands();
-    entity = brands.find(b => b.id === Number(entityId));
-  } else if (entityType === 'band') {
-    const bands = await db.getBands();
-    entity = bands.find(b => b.id === Number(entityId));
-  } else if (entityType === 'organizer') {
-    const organizers = await db.getOrganizers();
-    entity = organizers.find(o => o.id === Number(entityId));
-  }
-  if (!entity || !entity.collaborators) return false;
-  return entity.collaborators.some(c => c.personId === Number(personId) && c.role === 'creador_original');
+  return await db.isCreatorOriginal(personId, entityType, entityId);
 }
 
 // Middleware factory: verifica propiedad de una entidad
@@ -1126,24 +1094,25 @@ app.post('/api/auth/facebook', async (req, res) => {
     const emailLower = email.toLowerCase().trim();
     const pictureUrl = picture?.data?.url || null;
 
-    const people = await db.getPeople();
-    // Buscar si ya está vinculado o si coincide el email
-    let person = people.find(p => p.facebookId === facebookId || (p.email && p.email.toLowerCase() === emailLower));
-
-    if (person) {
-      // Si el usuario existe pero no tenía facebookId guardado, vincularlo
-      if (!person.facebookId) {
+    // Buscar por facebookId directamente o por email
+    let person = await db.getPersonByFacebookId(facebookId);
+    if (!person) {
+      person = await db.getPersonByEmail(emailLower);
+      if (person && !person.facebookId) {
+        // Si el usuario existe pero no tenía facebookId guardado, vincularlo
         person = await db.updatePerson(person.id, {
           ...person,
           facebookId: facebookId
         });
       }
-    } else {
+    }
+
+    if (!person) {
       // Registrar nueva persona
       const cleanUsername = name ? name.toLowerCase().replace(/[^a-z0-9_]/g, '').trim() : 'user_' + Math.floor(Math.random() * 10000);
       let uniqueUsername = cleanUsername;
       let counter = 1;
-      while (people.some(p => p.username && p.username.toLowerCase() === uniqueUsername.toLowerCase())) {
+      while (await db.getPersonByUsername(uniqueUsername)) {
         uniqueUsername = `${cleanUsername}_${counter}`;
         counter++;
       }
@@ -1184,13 +1153,12 @@ app.post('/api/auth/google', async (req, res) => {
     const { sub: googleId, name, email, picture } = payload;
     const emailLower = email.toLowerCase().trim();
 
-    const people = await db.getPeople();
     // 1. Intentar buscar por google_id
-    let person = people.find(p => p.googleId === googleId);
+    let person = await db.getPersonByGoogleId(googleId);
 
     // 2. Si no, buscar por email
     if (!person) {
-      person = people.find(p => p.email && p.email.toLowerCase() === emailLower);
+      person = await db.getPersonByEmail(emailLower);
       if (person) {
         // Asociar google_id automáticamente si coincide el correo
         await db.updatePerson(person.id, {
@@ -1210,7 +1178,7 @@ app.post('/api/auth/google', async (req, res) => {
       const cleanUsername = name ? name.toLowerCase().replace(/[^a-z0-9_]/g, '').trim() : 'user_' + Math.floor(Math.random() * 10000);
       let uniqueUsername = cleanUsername;
       let counter = 1;
-      while (people.some(p => p.username && p.username.toLowerCase() === uniqueUsername.toLowerCase())) {
+      while (await db.getPersonByUsername(uniqueUsername)) {
         uniqueUsername = `${cleanUsername}_${counter}`;
         counter++;
       }
@@ -1243,15 +1211,14 @@ app.put('/api/auth/change-email', requireAuth, async (req, res) => {
     if (!newEmail) return res.status(400).json({ error: 'El nuevo correo es requerido.' });
     
     const emailLower = newEmail.toLowerCase().trim();
-    const people = await db.getPeople();
     
     // Verificar si el correo ya está en uso
-    const existing = people.find(p => p.email && p.email.toLowerCase() === emailLower);
+    const existing = await db.getPersonByEmail(emailLower);
     if (existing && existing.id !== req.user.id) {
       return res.status(409).json({ error: 'El correo electrónico ya está en uso por otra cuenta.' });
     }
 
-    const person = people.find(p => p.id === req.user.id);
+    const person = await db.getPersonById(req.user.id);
     if (!person) return res.status(404).json({ error: 'Usuario no encontrado.' });
 
     // Si el usuario tiene password_hash configurado, validarlo
@@ -1289,8 +1256,7 @@ app.put('/api/auth/change-password', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'La nueva contraseña debe tener al menos 6 caracteres.' });
     }
 
-    const people = await db.getPeople();
-    const person = people.find(p => p.id === req.user.id);
+    const person = await db.getPersonById(req.user.id);
     if (!person) return res.status(404).json({ error: 'Usuario no encontrado.' });
 
     // Validar contraseña actual si la tiene
@@ -1330,14 +1296,13 @@ app.post('/api/auth/link-google', requireAuth, async (req, res) => {
     const payload = ticket.getPayload();
     const { sub: googleId } = payload;
 
-    const people = await db.getPeople();
     // Validar si ese google_id ya está vinculado a otra cuenta
-    const existing = people.find(p => p.googleId === googleId);
+    const existing = await db.getPersonByGoogleId(googleId);
     if (existing && existing.id !== req.user.id) {
       return res.status(409).json({ error: 'Esta cuenta de Google ya está vinculada a otro perfil de AOURUM.' });
     }
 
-    const person = people.find(p => p.id === req.user.id);
+    const person = await db.getPersonById(req.user.id);
     if (!person) return res.status(404).json({ error: 'Usuario no encontrado.' });
 
     const updated = await db.updatePerson(person.id, {
@@ -1356,8 +1321,7 @@ app.post('/api/auth/link-google', requireAuth, async (req, res) => {
 
 app.post('/api/auth/unlink-google', requireAuth, async (req, res) => {
   try {
-    const people = await db.getPeople();
-    const person = people.find(p => p.id === req.user.id);
+    const person = await db.getPersonById(req.user.id);
     if (!person) return res.status(404).json({ error: 'Usuario no encontrado.' });
 
     // Impedir desvinculación si el usuario no tiene contraseña (para evitar que se quede sin métodos de login)
@@ -1394,13 +1358,12 @@ app.post('/api/auth/link-facebook', requireAuth, async (req, res) => {
 
     const { id: facebookId } = fbData;
 
-    const people = await db.getPeople();
-    const existing = people.find(p => p.facebookId === facebookId);
+    const existing = await db.getPersonByFacebookId(facebookId);
     if (existing && existing.id !== req.user.id) {
       return res.status(409).json({ error: 'Esta cuenta de Facebook ya está vinculada a otro perfil de AOURUM.' });
     }
 
-    const person = people.find(p => p.id === req.user.id);
+    const person = await db.getPersonById(req.user.id);
     if (!person) return res.status(404).json({ error: 'Usuario no encontrado.' });
 
     const updated = await db.updatePerson(person.id, {
@@ -1419,8 +1382,7 @@ app.post('/api/auth/link-facebook', requireAuth, async (req, res) => {
 
 app.post('/api/auth/unlink-facebook', requireAuth, async (req, res) => {
   try {
-    const people = await db.getPeople();
-    const person = people.find(p => p.id === req.user.id);
+    const person = await db.getPersonById(req.user.id);
     if (!person) return res.status(404).json({ error: 'Usuario no encontrado.' });
 
     // Impedir desvinculación si no tiene otro método de acceso
@@ -1444,8 +1406,7 @@ app.post('/api/auth/unlink-facebook', requireAuth, async (req, res) => {
 app.delete('/api/auth/delete-account', requireAuth, async (req, res) => {
   try {
     const { password } = req.body;
-    const people = await db.getPeople();
-    const person = people.find(p => p.id === req.user.id);
+    const person = await db.getPersonById(req.user.id);
     if (!person) {
       return res.status(404).json({ error: 'Usuario no encontrado.' });
     }
@@ -1511,8 +1472,7 @@ app.put('/api/fairs/:id', requireAuth, async (req, res) => {
 app.delete('/api/fairs/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    const fairs = await db.getFairs();
-    const fair = fairs.find(f => f.id === Number(id));
+    const fair = await db.getFairById(id);
     if (!fair) return res.status(404).json({ error: 'Feria no encontrada' });
     
     const allowed = await isCreatorOriginal(req.user.id, 'organizer', fair.organizerId);
@@ -1535,9 +1495,7 @@ app.post('/api/fairs/:id/respond', requireAuth, async (req, res) => {
     if (!type || !entityId || accept === undefined) {
       return res.status(400).json({ error: 'Faltan campos requeridos (type, entityId, accept)' });
     }
-    // Verificar que el usuario es colaborador del organizador de esta feria
-    const fairs = await db.getFairs();
-    const fair = fairs.find(f => f.id === Number(id));
+    const fair = await db.getFairById(id);
     if (!fair) return res.status(404).json({ error: 'Feria no encontrada' });
     const allowed = await isCreatorOriginal(req.user.id, 'organizer', fair.organizerId);
     if (!allowed) {
