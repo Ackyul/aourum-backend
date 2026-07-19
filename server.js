@@ -11,6 +11,7 @@ const hpp = require('hpp');
 require('dotenv').config();
 
 const db = require('./db');
+const schemas = require('./schemas');
 
 // ── JWT_SECRET es OBLIGATORIO ──
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -33,6 +34,19 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 app.use(hpp());
+
+// Middleware de validación con Zod
+const validate = (schema) => (req, res, next) => {
+  const result = schema.safeParse(req.body);
+  if (!result.success) {
+    return res.status(400).json({
+      error: 'Error de validación de datos',
+      details: result.error.issues.map(e => ({ field: e.path.join('.'), message: e.message }))
+    });
+  }
+  req.body = result.data;
+  next();
+};
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -372,12 +386,9 @@ app.get('/api/products/by-slug/:slug', async (req, res) => {
 });
 
 
-app.post('/api/products', requireAuth, async (req, res) => {
+app.post('/api/products', requireAuth, validate(schemas.productSchema), async (req, res) => {
   try {
     const { name, description, price, priceAourum, stock, category, brandId, image, type } = req.body;
-    if (!name || !price || !category || !brandId) {
-      return res.status(400).json({ error: 'Faltan campos requeridos (nombre, precio, categoría, brandId)' });
-    }
     // Verificar que el usuario es creador original de la marca
     const allowed = await isCreatorOriginal(req.user.id, 'brand', brandId);
     if (!allowed) {
@@ -385,14 +396,14 @@ app.post('/api/products', requireAuth, async (req, res) => {
     }
     const product = await db.addProduct({
       name,
-      description: description || '',
-      price: Number(price),
-      priceAourum: priceAourum ? Number(priceAourum) : null,
-      stock: (stock === null || stock === undefined || stock === '') ? null : Number(stock),
+      description,
+      price,
+      priceAourum,
+      stock,
       category,
-      brandId: Number(brandId),
-      type: type || 'product',
-      image: image || 'https://images.unsplash.com/photo-1605100804763-247f67b3557e?w=500&q=80',
+      brandId,
+      type,
+      image,
     });
     res.status(201).json(product);
   } catch (error) {
@@ -400,13 +411,10 @@ app.post('/api/products', requireAuth, async (req, res) => {
   }
 });
 
-app.put('/api/products/:id', requireAuth, async (req, res) => {
+app.put('/api/products/:id', requireAuth, validate(schemas.productSchema), async (req, res) => {
   try {
     const { id } = req.params;
     const { name, description, price, priceAourum, stock, category, brandId, image, type } = req.body;
-    if (!name || !price || !category || !brandId) {
-      return res.status(400).json({ error: 'Faltan campos requeridos para la actualización (nombre, precio, categoría, brandId)' });
-    }
     // Verificar que el usuario es creador original de la marca del producto
     const allowed = await isCreatorOriginal(req.user.id, 'brand', brandId);
     if (!allowed) {
@@ -414,14 +422,14 @@ app.put('/api/products/:id', requireAuth, async (req, res) => {
     }
     const updated = await db.updateProduct(id, {
       name,
-      description: description || '',
-      price: Number(price),
-      priceAourum: priceAourum ? Number(priceAourum) : null,
-      stock: (stock === null || stock === undefined || stock === '') ? null : Number(stock),
+      description,
+      price,
+      priceAourum,
+      stock,
       category,
-      brandId: Number(brandId),
-      type: type || 'product',
-      image: image || 'https://images.unsplash.com/photo-1605100804763-247f67b3557e?w=500&q=80',
+      brandId,
+      type,
+      image,
     });
     if (!updated) return res.status(404).json({ error: 'Producto o servicio no encontrado' });
     res.json(updated);
@@ -455,12 +463,9 @@ app.get('/api/fairs', async (req, res) => {
   }
 });
 
-app.post('/api/fairs', requireAuth, async (req, res) => {
+app.post('/api/fairs', requireAuth, validate(schemas.fairSchema), async (req, res) => {
   try {
     const { name, location, date, time, banner, description, lat, lng, organizerId } = req.body;
-    if (!name || !location || !date) {
-      return res.status(400).json({ error: 'Faltan campos requeridos (nombre, ubicación, fecha)' });
-    }
     // Verificar que el usuario es colaborador del organizador
     const allowed = await isCollaborator(req.user.id, 'organizer', organizerId);
     if (!allowed) {
@@ -470,12 +475,12 @@ app.post('/api/fairs', requireAuth, async (req, res) => {
       name,
       location,
       date,
-      time: time || '10:00 - 20:00',
+      time,
       banner: banner || 'https://images.unsplash.com/photo-1533174072545-7a4b6ad7a6c3?w=800&q=80',
-      description: description || '',
-      lat: lat ? Number(lat) : -16.39889,
-      lng: lng ? Number(lng) : -71.53694,
-      organizerId: Number(organizerId || 1)
+      description,
+      lat,
+      lng,
+      organizerId
     });
     res.status(201).json(fair);
   } catch (error) {
@@ -492,20 +497,17 @@ app.get('/api/bands', async (req, res) => {
   }
 });
 
-app.post('/api/bands', requireAuth, async (req, res) => {
+app.post('/api/bands', requireAuth, validate(schemas.bandSchema), async (req, res) => {
   try {
     const { name, genre, members, description, image, mediaLink, personId } = req.body;
-    if (!name || !genre) {
-      return res.status(400).json({ error: 'Faltan campos requeridos (nombre, género)' });
-    }
     const band = await db.addBand({
       name,
       genre,
-      members: Number(members || 1),
-      description: description || '',
+      members,
+      description,
       image: image || 'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=500&q=80',
-      mediaLink: mediaLink || '',
-      personId: personId ? Number(personId) : undefined
+      mediaLink,
+      personId
     });
     res.status(201).json(band);
   } catch (error) {
@@ -522,19 +524,16 @@ app.get('/api/brands', async (req, res) => {
   }
 });
 
-app.post('/api/brands', requireAuth, async (req, res) => {
+app.post('/api/brands', requireAuth, validate(schemas.brandSchema), async (req, res) => {
   try {
     const { name, owner, category, description, logo, personId } = req.body;
-    if (!name || !owner || !category) {
-      return res.status(400).json({ error: 'Faltan campos requeridos (nombre, dueño, categoría)' });
-    }
     const brand = await db.addBrand({
       name,
       owner,
       category,
-      description: description || '',
+      description,
       logo: logo || 'https://images.unsplash.com/photo-1605100804763-247f67b3557e?w=150&h=150&fit=crop&q=80',
-      personId: personId ? Number(personId) : undefined
+      personId
     });
     res.status(201).json(brand);
   } catch (error) {
@@ -551,18 +550,15 @@ app.get('/api/organizers', async (req, res) => {
   }
 });
 
-app.post('/api/organizers', requireAuth, async (req, res) => {
+app.post('/api/organizers', requireAuth, validate(schemas.organizerSchema), async (req, res) => {
   try {
     const { name, owner, description, logo, personId } = req.body;
-    if (!name || !owner) {
-      return res.status(400).json({ error: 'Faltan campos requeridos (nombre, dueño)' });
-    }
     const organizer = await db.addOrganizer({
       name,
       owner,
-      description: description || '',
+      description,
       logo: logo || 'https://images.unsplash.com/photo-1533174072545-7a4b6ad7a6c3?w=150&h=150&fit=crop&q=80',
-      personId: personId ? Number(personId) : undefined
+      personId
     });
     res.status(201).json(organizer);
   } catch (error) {
@@ -570,13 +566,10 @@ app.post('/api/organizers', requireAuth, async (req, res) => {
   }
 });
 
-app.put('/api/bands/:id', requireAuth, requireOwnership('band'), async (req, res) => {
+app.put('/api/bands/:id', requireAuth, requireOwnership('band'), validate(schemas.bandSchema), async (req, res) => {
   try {
     const { id } = req.params;
     const { name, genre, members, description, image, mediaLink, gigs, slug } = req.body;
-    if (!name || !genre) {
-      return res.status(400).json({ error: 'Faltan campos requeridos (nombre, género)' });
-    }
     let cleanSlug = undefined;
     if (slug !== undefined) {
       cleanSlug = slug.toLowerCase().replace(/[^a-z0-9_]/g, '').trim();
@@ -588,7 +581,7 @@ app.put('/api/bands/:id', requireAuth, requireOwnership('band'), async (req, res
         return res.status(409).json({ error: 'El identificador de URL (slug) ya está en uso.' });
       }
     }
-    const updated = await db.updateBand(id, { name, genre, members: Number(members || 1), description, image, mediaLink, gigs, slug: cleanSlug });
+    const updated = await db.updateBand(id, { name, genre, members, description, image, mediaLink, gigs, slug: cleanSlug });
     if (!updated) return res.status(404).json({ error: 'Banda no encontrada' });
     res.json(updated);
   } catch (error) {
@@ -596,13 +589,10 @@ app.put('/api/bands/:id', requireAuth, requireOwnership('band'), async (req, res
   }
 });
 
-app.put('/api/brands/:id', requireAuth, requireOwnership('brand'), async (req, res) => {
+app.put('/api/brands/:id', requireAuth, requireOwnership('brand'), validate(schemas.brandSchema), async (req, res) => {
   try {
     const { id } = req.params;
     const { name, owner, category, description, logo, slug, whatsappNumber } = req.body;
-    if (!name || !owner || !category) {
-      return res.status(400).json({ error: 'Faltan campos requeridos (nombre, dueño, categoría)' });
-    }
     let cleanSlug = undefined;
     if (slug !== undefined) {
       cleanSlug = slug.toLowerCase().replace(/[^a-z0-9_]/g, '').trim();
@@ -622,13 +612,10 @@ app.put('/api/brands/:id', requireAuth, requireOwnership('brand'), async (req, r
   }
 });
 
-app.put('/api/organizers/:id', requireAuth, requireOwnership('organizer'), async (req, res) => {
+app.put('/api/organizers/:id', requireAuth, requireOwnership('organizer'), validate(schemas.organizerSchema), async (req, res) => {
   try {
     const { id } = req.params;
     const { name, owner, description, logo, slug } = req.body;
-    if (!name || !owner) {
-      return res.status(400).json({ error: 'Faltan campos requeridos (nombre, dueño)' });
-    }
     let cleanSlug = undefined;
     if (slug !== undefined) {
       cleanSlug = slug.toLowerCase().replace(/[^a-z0-9_]/g, '').trim();
@@ -711,7 +698,7 @@ app.post('/api/people', async (req, res) => {
   }
 });
 
-app.put('/api/people/:id', requireAuth, async (req, res) => {
+app.put('/api/people/:id', requireAuth, validate(schemas.profileUpdateSchema), async (req, res) => {
   try {
     const { id } = req.params;
     // Solo el propio usuario puede editar su perfil
@@ -719,9 +706,6 @@ app.put('/api/people/:id', requireAuth, async (req, res) => {
       return res.status(403).json({ error: 'Solo puedes editar tu propio perfil.' });
     }
     const { name, occupation, description, logo, brandIds, organizerIds, bandIds, username, lastName } = req.body;
-    if (!name) {
-      return res.status(400).json({ error: 'El nombre es requerido' });
-    }
 
     const cleanUsername = username ? username.toLowerCase().replace(/[^a-z0-9_]/g, '').trim() : '';
     if (cleanUsername) {
@@ -733,7 +717,7 @@ app.put('/api/people/:id', requireAuth, async (req, res) => {
 
     const updated = await db.updatePerson(id, {
       name,
-      occupation: occupation || '',
+      occupation,
       description,
       logo,
       brandIds,
@@ -812,12 +796,9 @@ app.post('/api/invitations/:id/respond', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/auth/register', authLimiter, async (req, res) => {
+app.post('/api/auth/register', authLimiter, validate(schemas.registerSchema), async (req, res) => {
   try {
     const { name, email, password, occupation, description, logo, username, lastName } = req.body;
-    if (!name || !email || !password) {
-      return res.status(400).json({ error: 'Nombre, email y contraseña son requeridos.' });
-    }
     const emailLower = email.toLowerCase().trim();
     const cleanUsername = username ? username.toLowerCase().replace(/[^a-z0-9_]/g, '').trim() : '';
 
@@ -852,12 +833,9 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
   }
 });
 
-app.post('/api/auth/login', authLimiter, async (req, res) => {
+app.post('/api/auth/login', authLimiter, validate(schemas.loginSchema), async (req, res) => {
   try {
     const { email, password } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email y contraseña son requeridos.' });
-    }
     const emailLower = email.toLowerCase().trim();
     const person = await db.getPersonByEmail(emailLower);
     if (!person) {
@@ -962,16 +940,9 @@ app.post('/api/auth/forgot-password', authLimiter, async (req, res) => {
   }
 });
 
-app.post('/api/auth/reset-password', async (req, res) => {
+app.post('/api/auth/reset-password', validate(schemas.resetPasswordSchema), async (req, res) => {
   try {
     const { token, email, password } = req.body;
-    if (!token || !email || !password) {
-      return res.status(400).json({ error: 'Token, correo y nueva contraseña son requeridos.' });
-    }
-    if (password.length < 6) {
-      return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres.' });
-    }
-
     const emailLower = email.toLowerCase().trim();
     const person = await db.getPersonByEmail(emailLower);
 
@@ -1443,13 +1414,10 @@ app.delete('/api/auth/delete-account', requireAuth, async (req, res) => {
   }
 });
 
-app.put('/api/fairs/:id', requireAuth, async (req, res) => {
+app.put('/api/fairs/:id', requireAuth, validate(schemas.fairSchema), async (req, res) => {
   try {
     const { id } = req.params;
     const { name, location, date, time, banner, description, lat, lng, organizerId, slug } = req.body;
-    if (!name || !location || !date) {
-      return res.status(400).json({ error: 'Faltan campos requeridos (nombre, ubicación, fecha)' });
-    }
     // Verificar que el usuario es colaborador del organizador de esta feria
     if (organizerId) {
       const allowed = await isCollaborator(req.user.id, 'organizer', organizerId);
