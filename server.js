@@ -147,25 +147,23 @@ app.use((req, res, next) => {
   next();
 });
 
-// ── Caché en memoria para optimizar peticiones y proteger Supabase ──
-const cache = {};
+// ── Caché Centralizada (Redis o Fallback en Memoria) ──
+const cache = require('./cache');
+const queue = require('./queue');
+
 const DEFAULT_CACHE_DURATION = 15000; // 15 segundos
 
-function clearCache(patterns) {
+async function clearCache(patterns) {
   if (!Array.isArray(patterns)) {
     patterns = [patterns];
   }
-  const keys = Object.keys(cache);
-  keys.forEach(key => {
-    if (patterns.some(pattern => key.includes(pattern))) {
-      console.log(`[Caché INVALIDADA] Eliminada clave: ${key}`);
-      delete cache[key];
-    }
-  });
+  for (const pattern of patterns) {
+    await cache.clearPattern(pattern);
+  }
 }
 
 // Middleware global para cachear lecturas (GET)
-app.use((req, res, next) => {
+app.use(async (req, res, next) => {
   if (req.method === 'GET') {
     const cacheableRoutes = [
       '/api/products',
@@ -181,20 +179,20 @@ app.use((req, res, next) => {
     
     if (isCacheable) {
       const key = req.originalUrl || req.url;
-      const cached = cache[key];
-      
-      if (cached && (Date.now() - cached.timestamp < DEFAULT_CACHE_DURATION)) {
-        console.log(`[Caché HIT] Respondiendo ${key} desde caché en memoria`);
-        return res.json(cached.data);
+      try {
+        const cachedData = await cache.get(key);
+        if (cachedData) {
+          console.log(`[Caché HIT] Respondiendo ${key} desde caché`);
+          return res.json(cachedData);
+        }
+      } catch (err) {
+        console.error('Error al consultar caché:', err);
       }
       
       const originalJson = res.json;
       res.json = function(body) {
         if (res.statusCode === 200) {
-          cache[key] = {
-            data: body,
-            timestamp: Date.now()
-          };
+          cache.set(key, body, 15).catch(err => console.error('Error al guardar en caché:', err));
         }
         return originalJson.call(this, body);
       };
@@ -210,21 +208,21 @@ app.use((req, res, next) => {
     res.json = function(body) {
       if (res.statusCode >= 200 && res.statusCode < 300) {
         if (req.path.startsWith('/api/products')) {
-          clearCache('products');
+          clearCache('products').catch(err => console.error(err));
         } else if (req.path.startsWith('/api/fairs')) {
-          clearCache('fairs');
+          clearCache('fairs').catch(err => console.error(err));
         } else if (req.path.startsWith('/api/bands')) {
-          clearCache('bands');
+          clearCache('bands').catch(err => console.error(err));
         } else if (req.path.startsWith('/api/brands')) {
-          clearCache('brands');
+          clearCache('brands').catch(err => console.error(err));
         } else if (req.path.startsWith('/api/organizers')) {
-          clearCache('organizers');
+          clearCache('organizers').catch(err => console.error(err));
         } else if (req.path.startsWith('/api/people') || req.path.startsWith('/api/auth/register') || req.path.startsWith('/api/auth/delete-account')) {
-          clearCache('people');
+          clearCache('people').catch(err => console.error(err));
         } else if (req.path.startsWith('/api/invitations')) {
-          clearCache('invitations');
+          clearCache('invitations').catch(err => console.error(err));
         } else if (req.path.includes('/collaborators')) {
-          clearCache(['brands', 'organizers', 'bands']);
+          clearCache(['brands', 'organizers', 'bands']).catch(err => console.error(err));
         }
       }
       return originalJson.call(this, body);
@@ -978,39 +976,33 @@ app.post('/api/auth/forgot-password', authLimiter, async (req, res) => {
 
     console.log(`\n🔑 [Recuperación de Contraseña] Enlace generado para ${person.email}:\n👉 ${resetUrl}\n`);
 
-    if (resend) {
-      try {
-        await resend.emails.send({
-          from: process.env.EMAIL_FROM || 'AOURUM <onboarding@resend.dev>',
-          to: person.email,
-          subject: 'Restablecer contraseña - AOURUM',
-          html: `
-            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
-              <h2 style="color: #d4af37; text-align: center;">AOURUM</h2>
-              <p>Hola, <strong>${person.name}</strong>:</p>
-              <p>Has solicitado restablecer tu contraseña en AOURUM, el nodo central del talento local.</p>
-              <p>Haz clic en el siguiente botón para establecer una nueva contraseña. Este enlace expira en 15 minutos:</p>
-              <div style="text-align: center; margin: 30px 0;">
-                <a href="${resetUrl}" style="background: linear-gradient(135deg, #d4af37, #aa7c11); color: #1c1c1e; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Restablecer Contraseña</a>
-              </div>
-              <p style="color: #666; font-size: 0.9rem;">Si el botón no funciona, copia y pega el siguiente enlace en tu navegador:</p>
-              <p style="color: #888; font-size: 0.85rem; word-break: break-all;">${resetUrl}</p>
-              <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
-              <p style="color: #999; font-size: 0.8rem; text-align: center;">Si no solicitaste este cambio, puedes ignorar este correo de forma segura.</p>
-            </div>
-          `
-        });
-        return res.json({ message: 'Se ha enviado un enlace de recuperación a tu correo electrónico.' });
-      } catch (emailError) {
-        console.error('Error al enviar correo con Resend:', emailError);
-        return res.status(500).json({ error: 'Error al enviar el correo. Por favor, inténtalo de nuevo más tarde.' });
-      }
-    } else {
-      return res.json({ 
-        message: 'Modo Desarrollo: El enlace de recuperación ha sido impreso en la consola de la terminal del servidor.',
-        devMode: true 
-      });
-    }
+    // Encolar tarea asíncrona de envío de correo en segundo plano
+    await queue.queueEmail({
+      from: process.env.EMAIL_FROM || 'AOURUM <onboarding@resend.dev>',
+      to: person.email,
+      subject: 'Restablecer contraseña - AOURUM',
+      resetLink: resetUrl,
+      html: `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+          <h2 style="color: #d4af37; text-align: center;">AOURUM</h2>
+          <p>Hola, <strong>${person.name}</strong>:</p>
+          <p>Has solicitado restablecer tu contraseña en AOURUM, el nodo central del talento local.</p>
+          <p>Haz clic en el siguiente botón para establecer una nueva contraseña. Este enlace expira en 15 minutos:</p>
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${resetUrl}" style="background: linear-gradient(135deg, #d4af37, #aa7c11); color: #1c1c1e; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Restablecer Contraseña</a>
+          </div>
+          <p style="color: #666; font-size: 0.9rem;">Si el botón no funciona, copia y pega el siguiente enlace en tu navegador:</p>
+          <p style="color: #888; font-size: 0.85rem; word-break: break-all;">${resetUrl}</p>
+          <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
+          <p style="color: #999; font-size: 0.8rem; text-align: center;">Si no solicitaste este cambio, puedes ignorar este correo de forma segura.</p>
+        </div>
+      `
+    });
+
+    return res.json({ 
+      message: 'Se ha enviado un enlace de recuperación a tu correo electrónico.', 
+      devMode: !process.env.RESEND_API_KEY 
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
