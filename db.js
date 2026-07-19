@@ -62,10 +62,35 @@ async function generateUniqueSlug(table, name, column = 'slug') {
 }
 
 
-async function getProducts() {
-  const { data, error } = await supabase.from('products').select('*');
+async function getProducts(options = {}) {
+  let query = supabase.from('products').select('*', { count: options.paginated ? 'exact' : undefined });
+
+  if (options.category && options.category !== 'all') {
+    query = query.eq('category', options.category);
+  }
+  if (options.brandId) {
+    query = query.eq('brand_id', Number(options.brandId));
+  }
+  if (options.search) {
+    query = query.ilike('name', `%${options.search}%`);
+  }
+
+  query = query.order('id', { ascending: false });
+
+  if (options.page && options.limit) {
+    const page = Number(options.page);
+    const limit = Number(options.limit);
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+    query = query.range(from, to);
+  } else if (options.limit) {
+    query = query.limit(Number(options.limit));
+  }
+
+  const { data, error, count } = await query;
   if (error) throw error;
-  return (data || []).map(p => ({
+
+  const items = (data || []).map(p => ({
     ...p,
     category: p.category ? p.category.trim() : '',
     brandId: p.brand_id ? Number(p.brand_id) : null,
@@ -73,6 +98,16 @@ async function getProducts() {
     priceAourum: p.price_aourum ? Number(p.price_aourum) : null,
     slug: p.slug || null
   }));
+
+  if (options.paginated) {
+    return {
+      items,
+      count: count || items.length,
+      page: options.page ? Number(options.page) : 1,
+      limit: options.limit ? Number(options.limit) : items.length
+    };
+  }
+  return items;
 }
 
 async function addProduct(product) {
@@ -183,16 +218,33 @@ async function deleteProduct(id) {
   return data && data.length > 0;
 }
 
-async function getFairs() {
-  const { data, error } = await supabase
-    .from('fairs')
-    .select(`
-      *,
-      fair_brands (brand_id, status),
-      fair_bands (band_id, status)
-    `);
+async function getFairs(options = {}) {
+  let query = supabase.from('fairs').select(`
+    *,
+    fair_brands (brand_id, status),
+    fair_bands (band_id, status)
+  `, { count: options.paginated ? 'exact' : undefined });
+
+  if (options.search) {
+    query = query.ilike('name', `%${options.search}%`);
+  }
+
+  query = query.order('id', { ascending: false });
+
+  if (options.page && options.limit) {
+    const page = Number(options.page);
+    const limit = Number(options.limit);
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+    query = query.range(from, to);
+  } else if (options.limit) {
+    query = query.limit(Number(options.limit));
+  }
+
+  const { data, error, count } = await query;
   if (error) throw error;
-  return (data || []).map(f => {
+
+  const items = (data || []).map(f => {
     const acceptedBrands = [];
     const pendingBrands = [];
     const acceptedBands = [];
@@ -238,6 +290,16 @@ async function getFairs() {
       pendingBands
     };
   });
+
+  if (options.paginated) {
+    return {
+      items,
+      count: count || items.length,
+      page: options.page ? Number(options.page) : 1,
+      limit: options.limit ? Number(options.limit) : items.length
+    };
+  }
+  return items;
 }
 
 async function addFair(fair) {
@@ -381,15 +443,35 @@ async function updateBand(id, updatedBand) {
   };
 }
 
-async function getBrands() {
-  const { data, error } = await supabase
-    .from('brands')
-    .select(`
-      *,
-      person_brands (person_id, role)
-    `);
+async function getBrands(options = {}) {
+  let query = supabase.from('brands').select(`
+    *,
+    person_brands (person_id, role)
+  `, { count: options.paginated ? 'exact' : undefined });
+
+  if (options.category && options.category !== 'all') {
+    query = query.eq('category', options.category);
+  }
+  if (options.search) {
+    query = query.ilike('name', `%${options.search}%`);
+  }
+
+  query = query.order('id', { ascending: false });
+
+  if (options.page && options.limit) {
+    const page = Number(options.page);
+    const limit = Number(options.limit);
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+    query = query.range(from, to);
+  } else if (options.limit) {
+    query = query.limit(Number(options.limit));
+  }
+
+  const { data, error, count } = await query;
   if (error) throw error;
-  return (data || []).map(b => ({
+
+  const items = (data || []).map(b => ({
     id: Number(b.id),
     name: b.name,
     owner: b.owner,
@@ -401,6 +483,16 @@ async function getBrands() {
     personIds: b.person_brands ? b.person_brands.map(pb => Number(pb.person_id)) : [],
     collaborators: b.person_brands ? b.person_brands.map(pb => ({ personId: Number(pb.person_id), role: pb.role || 'colaborador' })) : []
   }));
+
+  if (options.paginated) {
+    return {
+      items,
+      count: count || items.length,
+      page: options.page ? Number(options.page) : 1,
+      limit: options.limit ? Number(options.limit) : items.length
+    };
+  }
+  return items;
 }
 
 async function addBrand(brand) {
@@ -582,17 +674,34 @@ async function updateOrganizer(id, updatedOrganizer) {
   };
 }
 
-async function getPeople() {
-  const { data, error } = await supabase
-    .from('people')
-    .select(`
-      *,
-      person_brands (brand_id, role),
-      person_organizers (organizer_id, role),
-      person_bands (band_id)
-    `);
+async function getPeople(options = {}) {
+  let query = supabase.from('people').select(`
+    *,
+    person_brands (brand_id, role),
+    person_organizers (organizer_id, role),
+    person_bands (band_id)
+  `, { count: options.paginated ? 'exact' : undefined });
+
+  if (options.search) {
+    query = query.or(`name.ilike.%${options.search}%,username.ilike.%${options.search}%`);
+  }
+
+  query = query.order('id', { ascending: false });
+
+  if (options.page && options.limit) {
+    const page = Number(options.page);
+    const limit = Number(options.limit);
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+    query = query.range(from, to);
+  } else if (options.limit) {
+    query = query.limit(Number(options.limit));
+  }
+
+  const { data, error, count } = await query;
   if (error) throw error;
-  return (data || []).map(p => ({
+
+  const items = (data || []).map(p => ({
     id: Number(p.id),
     name: p.name,
     username: p.username,
@@ -611,6 +720,16 @@ async function getPeople() {
     organizerRoles: p.person_organizers ? p.person_organizers.map(o => ({ organizerId: Number(o.organizer_id), role: o.role || 'colaborador' })) : [],
     bandIds: p.person_bands ? p.person_bands.map(b => Number(b.band_id)) : []
   }));
+
+  if (options.paginated) {
+    return {
+      items,
+      count: count || items.length,
+      page: options.page ? Number(options.page) : 1,
+      limit: options.limit ? Number(options.limit) : items.length
+    };
+  }
+  return items;
 }
 
 async function addPerson(person) {

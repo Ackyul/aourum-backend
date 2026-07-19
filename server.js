@@ -367,8 +367,17 @@ app.post('/api/remove-bg-ai', requireAuth, aiLimiter, async (req, res) => {
 
 app.get('/api/products', async (req, res) => {
   try {
-    const products = await db.getProducts();
-    res.json(products);
+    const { page, limit, category, brandId, search } = req.query;
+    const paginated = (page !== undefined || limit !== undefined);
+    const result = await db.getProducts({
+      page,
+      limit,
+      category,
+      brandId,
+      search,
+      paginated
+    });
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -456,8 +465,15 @@ app.delete('/api/products/:id', requireAuth, async (req, res) => {
 
 app.get('/api/fairs', async (req, res) => {
   try {
-    const fairs = await db.getFairs();
-    res.json(fairs);
+    const { page, limit, search } = req.query;
+    const paginated = (page !== undefined || limit !== undefined);
+    const result = await db.getFairs({
+      page,
+      limit,
+      search,
+      paginated
+    });
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -517,8 +533,16 @@ app.post('/api/bands', requireAuth, validate(schemas.bandSchema), async (req, re
 
 app.get('/api/brands', async (req, res) => {
   try {
-    const brands = await db.getBrands();
-    res.json(brands);
+    const { page, limit, category, search } = req.query;
+    const paginated = (page !== undefined || limit !== undefined);
+    const result = await db.getBrands({
+      page,
+      limit,
+      category,
+      search,
+      paginated
+    });
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -667,9 +691,21 @@ app.delete('/api/organizers/:id', requireAuth, requireCreator('organizer'), asyn
 
 app.get('/api/people', async (req, res) => {
   try {
-    const people = await db.getPeople();
-    const safePeople = people.map(({ passwordHash, email, googleId, facebookId, ...safe }) => safe);
-    res.json(safePeople);
+    const { page, limit, search } = req.query;
+    const paginated = (page !== undefined || limit !== undefined);
+    const result = await db.getPeople({
+      page,
+      limit,
+      search,
+      paginated
+    });
+    if (paginated) {
+      result.items = result.items.map(({ passwordHash, email, googleId, facebookId, ...safe }) => safe);
+      res.json(result);
+    } else {
+      const safePeople = result.map(({ passwordHash, email, googleId, facebookId, ...safe }) => safe);
+      res.json(safePeople);
+    }
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
