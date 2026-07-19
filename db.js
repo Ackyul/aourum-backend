@@ -1681,10 +1681,165 @@ async function isCreatorOriginal(personId, entityType, entityId) {
   return !!data;
 }
 
+async function getBrandBySlug(slug) {
+  const isId = !isNaN(slug);
+  let query = supabase.from('brands').select(`
+    *,
+    person_brands (person_id, role)
+  `);
+  if (isId) {
+    query = query.eq('id', Number(slug));
+  } else {
+    query = query.eq('slug', slug);
+  }
+  const { data, error } = await query.maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  return {
+    id: Number(data.id),
+    name: data.name,
+    owner: data.owner,
+    category: data.category,
+    description: data.description,
+    logo: data.logo,
+    slug: data.slug,
+    whatsappNumber: data.whatsapp_number || null,
+    personIds: data.person_brands ? data.person_brands.map(pb => Number(pb.person_id)) : [],
+    collaborators: data.person_brands ? data.person_brands.map(pb => ({ personId: Number(pb.person_id), role: pb.role || 'colaborador' })) : []
+  };
+}
+
+async function getBandBySlug(slug) {
+  const isId = !isNaN(slug);
+  let query = supabase.from('bands').select('*');
+  if (isId) {
+    query = query.eq('id', Number(slug));
+  } else {
+    query = query.eq('slug', slug);
+  }
+  const { data, error } = await query.maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+
+  const { data: junctions } = await supabase
+    .from('person_bands')
+    .select('person_id, role')
+    .eq('band_id', Number(data.id));
+
+  return {
+    id: Number(data.id),
+    name: data.name,
+    genre: data.genre,
+    members: Number(data.members),
+    description: data.description,
+    image: data.image,
+    mediaLink: data.media_link,
+    slug: data.slug,
+    gigs: data.gigs || [],
+    personIds: junctions ? junctions.map(j => Number(j.person_id)) : [],
+    collaborators: junctions ? junctions.map(j => ({ personId: Number(j.person_id), role: j.role || 'colaborador' })) : []
+  };
+}
+
+async function getFairBySlug(slug) {
+  const isId = !isNaN(slug);
+  let query = supabase.from('fairs').select(`
+    *,
+    fair_brands (brand_id, status),
+    fair_bands (band_id, status)
+  `);
+  if (isId) {
+    query = query.eq('id', Number(slug));
+  } else {
+    query = query.eq('slug', slug);
+  }
+  const { data, error } = await query.maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+
+  const acceptedBrands = [];
+  const pendingBrands = [];
+  const acceptedBands = [];
+  const pendingBands = [];
+
+  if (data.fair_brands) {
+    data.fair_brands.forEach(fb => {
+      const bId = Number(fb.brand_id);
+      if (fb.status === 'accepted') {
+        acceptedBrands.push(bId);
+      } else {
+        pendingBrands.push(bId);
+      }
+    });
+  }
+
+  if (data.fair_bands) {
+    data.fair_bands.forEach(fb => {
+      const bId = Number(fb.band_id);
+      if (fb.status === 'accepted') {
+        acceptedBands.push(bId);
+      } else {
+        pendingBands.push(bId);
+      }
+    });
+  }
+
+  return {
+    id: Number(data.id),
+    name: data.name,
+    location: data.location,
+    date: data.date,
+    time: data.time,
+    banner: data.banner,
+    description: data.description,
+    slug: data.slug,
+    lat: data.lat ? Number(data.lat) : -16.39889,
+    lng: data.lng ? Number(data.lng) : -71.53694,
+    organizerId: data.organizer_id ? Number(data.organizer_id) : null,
+    acceptedBrands,
+    pendingBrands,
+    acceptedBands,
+    pendingBands
+  };
+}
+
+async function getOrganizerBySlug(slug) {
+  const isId = !isNaN(slug);
+  let query = supabase.from('organizers').select('*');
+  if (isId) {
+    query = query.eq('id', Number(slug));
+  } else {
+    query = query.eq('slug', slug);
+  }
+  const { data, error } = await query.maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+
+  const { data: junctions } = await supabase
+    .from('person_organizers')
+    .select('person_id, role')
+    .eq('organizer_id', Number(data.id));
+
+  return {
+    id: Number(data.id),
+    name: data.name,
+    owner: data.owner,
+    description: data.description,
+    logo: data.logo,
+    slug: data.slug || '',
+    personIds: junctions ? junctions.map(j => Number(j.person_id)) : [],
+    collaborators: junctions ? junctions.map(j => ({ personId: Number(j.person_id), role: j.role || 'colaborador' })) : []
+  };
+}
+
 module.exports = {
   getProducts,
   getProductById,
   getProductBySlug,
+  getBrandBySlug,
+  getBandBySlug,
+  getFairBySlug,
+  getOrganizerBySlug,
   addProduct,
   updateProduct,
   deleteProduct,

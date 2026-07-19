@@ -548,6 +548,46 @@ app.get('/api/brands', async (req, res) => {
   }
 });
 
+app.get('/api/brands/by-slug/:slug', async (req, res) => {
+  try {
+    const brand = await db.getBrandBySlug(req.params.slug);
+    if (!brand) return res.status(404).json({ error: 'Marca no encontrada' });
+    res.json(brand);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/bands/by-slug/:slug', async (req, res) => {
+  try {
+    const band = await db.getBandBySlug(req.params.slug);
+    if (!band) return res.status(404).json({ error: 'Banda no encontrada' });
+    res.json(band);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/fairs/by-slug/:slug', async (req, res) => {
+  try {
+    const fair = await db.getFairBySlug(req.params.slug);
+    if (!fair) return res.status(404).json({ error: 'Feria no encontrada' });
+    res.json(fair);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/organizers/by-slug/:slug', async (req, res) => {
+  try {
+    const organizer = await db.getOrganizerBySlug(req.params.slug);
+    if (!organizer) return res.status(404).json({ error: 'Organizador no encontrado' });
+    res.json(organizer);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/brands', requireAuth, validate(schemas.brandSchema), async (req, res) => {
   try {
     const { name, owner, category, description, logo, personId } = req.body;
