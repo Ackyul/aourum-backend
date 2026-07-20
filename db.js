@@ -1,4 +1,4 @@
-const { createClient } = require('@supabase/supabase-js');
+﻿const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -942,7 +942,7 @@ async function applyToFair(fairId, type, id) {
       if (insertError) throw insertError;
     }
   } else {
-    return { error: 'Tipo de aplicación no válido' };
+    return { error: 'Tipo de aplicaciÃ³n no vÃ¡lido' };
   }
 
   const fairs = await getFairs();
@@ -1002,7 +1002,7 @@ async function respondToInvitation(id, status) {
     .single();
 
   if (fetchError || !invitation) {
-    return { error: 'Invitación no encontrada' };
+    return { error: 'InvitaciÃ³n no encontrada' };
   }
 
   if (status === 'accepted') {
@@ -1045,7 +1045,7 @@ async function updateCollaboratorRole(entityType, entityId, personId, role) {
     table = 'person_organizers';
     idColumn = 'organizer_id';
   } else {
-    throw new Error('Tipo de entidad no válido');
+    throw new Error('Tipo de entidad no vÃ¡lido');
   }
 
   const { data, error } = await supabase
@@ -1073,7 +1073,7 @@ async function removeCollaborator(entityType, entityId, personId) {
     table = 'person_organizers';
     idColumn = 'organizer_id';
   } else {
-    throw new Error('Tipo de entidad no válido');
+    throw new Error('Tipo de entidad no vÃ¡lido');
   }
 
   const { data, error } = await supabase
@@ -1245,7 +1245,7 @@ async function deletePerson(id) {
   const brandsToDelete = juncBrands ? juncBrands.map(b => Number(b.brand_id)) : [];
   const organizersToDelete = juncOrgs ? juncOrgs.map(o => Number(o.organizer_id)) : [];
 
-  // 2. Eliminar en cascada las entidades que el usuario creó
+  // 2. Eliminar en cascada las entidades que el usuario creÃ³
   for (const bandId of bandsToDelete) {
     await deleteBand(bandId);
   }
@@ -1271,7 +1271,7 @@ async function deletePerson(id) {
   return data && data.length > 0;
 }
 
-// ── CONSULTAS OPTIMIZADAS DIRECTAS (O(1)) ──
+// â”€â”€ CONSULTAS OPTIMIZADAS DIRECTAS (O(1)) â”€â”€
 
 async function getProductById(id) {
   const { data, error } = await supabase
@@ -1881,6 +1881,49 @@ module.exports = {
   removeCollaborator,
   isSlugUnique,
   isCollaborator,
-  isCreatorOriginal
+  isCreatorOriginal,
+  getActivityFeed
 };
 
+async function getActivityFeed(options = {}) {
+  const page = Number(options.page) || 1;
+  const limit = Number(options.limit) || 15;
+
+  const [prodRes, fairRes, brandRes, bandRes, personRes] = await Promise.all([
+    supabase.from('products').select('id, name, description, image, slug, created_at, brand_id').order('created_at', { ascending: false }).limit(limit + 5),
+    supabase.from('fairs').select('id, name, description, banner, slug, date, location, created_at').order('created_at', { ascending: false }).limit(limit + 5),
+    supabase.from('brands').select('id, name, description, logo, slug, category, created_at').order('created_at', { ascending: false }).limit(limit + 5),
+    supabase.from('bands').select('id, name, description, image, slug, genre, created_at').order('created_at', { ascending: false }).limit(limit + 5),
+    supabase.from('people').select('id, name, username, logo, occupation, created_at').order('created_at', { ascending: false }).limit(limit + 5)
+  ]);
+
+  const events = [];
+
+  for (const p of (prodRes.data || [])) {
+    if (!p.created_at) continue;
+    events.push({ id: `product_${p.id}`, eventType: 'product_created', timestamp: p.created_at, title: p.name, description: p.description || '', image: p.image || null, link: p.slug ? `/products/${p.slug}` : null, authorId: p.brand_id ? Number(p.brand_id) : null, authorType: 'brand' });
+  }
+  for (const f of (fairRes.data || [])) {
+    if (!f.created_at) continue;
+    events.push({ id: `fair_${f.id}`, eventType: 'fair_created', timestamp: f.created_at, title: f.name, description: f.description || '', image: f.banner || null, link: f.slug ? `/fairs/${f.slug}` : null, meta: { date: f.date, location: f.location }, authorId: null, authorType: 'organizer' });
+  }
+  for (const b of (brandRes.data || [])) {
+    if (!b.created_at) continue;
+    events.push({ id: `brand_${b.id}`, eventType: 'brand_created', timestamp: b.created_at, title: b.name, description: b.description || '', image: b.logo || null, link: b.slug ? `/brands/${b.slug}` : null, meta: { category: b.category }, authorId: Number(b.id), authorType: 'brand' });
+  }
+  for (const b of (bandRes.data || [])) {
+    if (!b.created_at) continue;
+    events.push({ id: `band_${b.id}`, eventType: 'band_created', timestamp: b.created_at, title: b.name, description: b.description || '', image: b.image || null, link: b.slug ? `/bands/${b.slug}` : null, meta: { genre: b.genre }, authorId: Number(b.id), authorType: 'band' });
+  }
+  for (const p of (personRes.data || [])) {
+    if (!p.created_at) continue;
+    events.push({ id: `person_${p.id}`, eventType: 'person_created', timestamp: p.created_at, title: p.name, description: p.occupation || '', image: p.logo || null, link: p.username ? `/people/${p.username}` : null, authorId: Number(p.id), authorType: 'person' });
+  }
+
+  events.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+  const from = (page - 1) * limit;
+  const items = events.slice(from, from + limit);
+
+  return { items, count: events.length, page, limit };
+}

@@ -235,6 +235,19 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'AOURUM API is running' });
 });
 
+app.get('/api/feed', async (req, res) => {
+  try {
+    const { page, limit } = req.query;
+    const result = await db.getActivityFeed({
+      page: page || 1,
+      limit: limit || 15
+    });
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/upload', requireAuth, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
