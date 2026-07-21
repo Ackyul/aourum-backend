@@ -1885,7 +1885,8 @@ module.exports = {
   getActivityFeed,
   getPostById,
   addPost,
-  deletePost
+  deletePost,
+  reportPost
 };
 
 async function getActivityFeed(options = {}) {
@@ -1911,6 +1912,7 @@ async function getActivityFeed(options = {}) {
         occupation
       )
     `, { count: 'exact' })
+    .or('status.eq.approved,status.is.null')
     .order('created_at', { ascending: false })
     .range(from, to);
 
@@ -1966,4 +1968,36 @@ async function deletePost(id) {
   if (error) throw error;
   return data && data.length > 0;
 }
+
+async function reportPost(id) {
+  const { data: post, error: fetchError } = await supabase
+    .from('posts')
+    .select('reports_count, status')
+    .eq('id', Number(id))
+    .maybeSingle();
+
+  if (fetchError) throw fetchError;
+  if (!post) return null;
+
+  const newReportsCount = (Number(post.reports_count) || 0) + 1;
+  let newStatus = post.status || 'approved';
+
+  if (newReportsCount >= 3) {
+    newStatus = 'flagged';
+  }
+
+  const { data, error } = await supabase
+    .from('posts')
+    .update({
+      reports_count: newReportsCount,
+      status: newStatus
+    })
+    .eq('id', Number(id))
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
 

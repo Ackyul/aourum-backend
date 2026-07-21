@@ -150,7 +150,10 @@ const postLimiter = rateLimit({
 
 const NSFW_BLACKLIST = [
   'porn', 'porno', 'gore', 'sexo', 'sexual', 'desnudo', 'desnuda', 'nude', 'nsfw', 'xxx',
-  'puta', 'puto', 'mierda', 'pendejo', 'carajo', 'culiado', 'culiada', 'cagon', 'cagona'
+  'puta', 'puto', 'mierda', 'pendejo', 'carajo', 'culiado', 'culiada', 'cagon', 'cagona',
+  'perra', 'bastardo', 'verga', 'pito', 'teta', 'telas', 'culo', 'ass', 'bitch', 'fuck',
+  'chichi', 'mamada', 'coger', 'violacion', 'viagra', 'cialis', 'casino', 'betting', 'escort',
+  'prostituta', 'prepago', 'narcotrafico', 'sicario', 'armas', 'drogas', 'cocaina'
 ];
 
 function containsNSFW(text) {
@@ -162,6 +165,35 @@ function containsNSFW(text) {
     const regex = new RegExp(`\\b${word}\\b`, 'i');
     return regex.test(normalized);
   });
+}
+
+function isSpamOrNSFWText(text) {
+  if (!text) return false;
+  
+  // 1. Check text content against word blacklist
+  if (containsNSFW(text)) return true;
+  
+  // 2. Scan for and restrict spam links (only allow aourum.com, localhost, and cloudinary.com URLs)
+  const urlRegex = /https?:\/\/[^\s]+/gi;
+  const urls = text.match(urlRegex) || [];
+  for (const url of urls) {
+    try {
+      const parsed = new URL(url);
+      const domain = parsed.hostname.toLowerCase();
+      const isAllowed = domain === 'aourum.com' || 
+                        domain.endsWith('.aourum.com') || 
+                        domain === 'res.cloudinary.com' ||
+                        domain === 'localhost' ||
+                        domain === '127.0.0.1';
+      if (!isAllowed) {
+        return true; // Contains blockable external domain URL -> marked as spam
+      }
+    } catch (e) {
+      return true; // Invalid or malformed URL -> block
+    }
+  }
+  
+  return false;
 }
 
 app.use(globalLimiter);
@@ -502,8 +534,14 @@ app.post('/api/posts', requireAuth, postLimiter, validate(schemas.postSchema), a
   try {
     const { content, image } = req.body;
 
-    if (containsNSFW(content)) {
-      return res.status(400).json({ error: 'La publicación contiene lenguaje no permitido o inapropiado.' });
+    // 1. Validate image URL domain (Strict Cloudinary validation)
+    if (image && !image.startsWith('https://res.cloudinary.com/decklnx3p/')) {
+      return res.status(400).json({ error: 'La imagen debe subirse a través del servidor oficial de AOURUM.' });
+    }
+
+    // 2. Validate text content for NSFW words and spam links
+    if (isSpamOrNSFWText(content)) {
+      return res.status(400).json({ error: 'La publicación contiene lenguaje no permitido, ofensivo o enlaces externos sospechosos.' });
     }
 
     const post = await db.addPost({
@@ -512,6 +550,25 @@ app.post('/api/posts', requireAuth, postLimiter, validate(schemas.postSchema), a
       image
     });
     res.status(201).json(post);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/posts/:id/report', requireAuth, postLimiter, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await db.reportPost(id);
+    if (!result) {
+      return res.status(404).json({ error: 'Publicación no encontrada.' });
+    }
+    
+    const isFlagged = result.status === 'flagged';
+    res.json({
+      message: isFlagged ? 'La publicación ha sido ocultada por acumulación de reportes.' : 'Publicación reportada con éxito.',
+      status: result.status,
+      reportsCount: result.reports_count
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
