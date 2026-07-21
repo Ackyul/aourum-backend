@@ -474,6 +474,41 @@ app.delete('/api/products/:id', requireAuth, async (req, res) => {
   }
 });
 
+app.post('/api/posts', requireAuth, validate(schemas.postSchema), async (req, res) => {
+  try {
+    const { content, image } = req.body;
+    const post = await db.addPost({
+      personId: req.user.id,
+      content,
+      image
+    });
+    res.status(201).json(post);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/posts/:id', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const post = await db.getPostById(id);
+    if (!post) {
+      return res.status(404).json({ error: 'Publicación no encontrada.' });
+    }
+    if (post.person_id !== req.user.id) {
+      return res.status(403).json({ error: 'No tienes permiso para eliminar esta publicación.' });
+    }
+    const success = await db.deletePost(id);
+    if (!success) {
+      return res.status(404).json({ error: 'No se pudo eliminar la publicación.' });
+    }
+    res.json({ message: 'Publicación eliminada con éxito.' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
 app.get('/api/fairs', async (req, res) => {
   try {
     const { page, limit, search } = req.query;

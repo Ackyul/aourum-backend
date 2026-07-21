@@ -1882,33 +1882,88 @@ module.exports = {
   isSlugUnique,
   isCollaborator,
   isCreatorOriginal,
-  getActivityFeed
+  getActivityFeed,
+  getPostById,
+  addPost,
+  deletePost
 };
 
 async function getActivityFeed(options = {}) {
   const page = Number(options.page) || 1;
   const limit = Number(options.limit) || 15;
-
-  const [prodRes, fairRes] = await Promise.all([
-    supabase.from('products').select('id, name, description, image, slug, created_at, brand_id').order('created_at', { ascending: false }).limit(limit + 5),
-    supabase.from('fairs').select('id, name, description, banner, slug, date, location, created_at').order('created_at', { ascending: false }).limit(limit + 5)
-  ]);
-
-  const events = [];
-
-  for (const p of (prodRes.data || [])) {
-    if (!p.created_at) continue;
-    events.push({ id: `product_${p.id}`, eventType: 'product_created', timestamp: p.created_at, title: p.name, description: p.description || '', image: p.image || null, link: p.slug ? `/products/${p.slug}` : null, authorId: p.brand_id ? Number(p.brand_id) : null, authorType: 'brand' });
-  }
-  for (const f of (fairRes.data || [])) {
-    if (!f.created_at) continue;
-    events.push({ id: `fair_${f.id}`, eventType: 'fair_created', timestamp: f.created_at, title: f.name, description: f.description || '', image: f.banner || null, link: f.slug ? `/fairs/${f.slug}` : null, meta: { date: f.date, location: f.location }, authorId: null, authorType: 'organizer' });
-  }
-
-  events.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
   const from = (page - 1) * limit;
-  const items = events.slice(from, from + limit);
+  const to = from + limit - 1;
 
-  return { items, count: events.length, page, limit };
+  const { data, error, count } = await supabase
+    .from('posts')
+    .select(`
+      id,
+      content,
+      image,
+      created_at,
+      person_id,
+      people:person_id (
+        id,
+        name,
+        last_name,
+        username,
+        logo,
+        occupation
+      )
+    `, { count: 'exact' })
+    .order('created_at', { ascending: false })
+    .range(from, to);
+
+  if (error) throw error;
+
+  const items = (data || []).map(post => ({
+    id: post.id,
+    eventType: 'user_post',
+    timestamp: post.created_at,
+    title: post.people ? `${post.people.name} ${post.people.last_name || ''}`.trim() : 'Usuario Aourum',
+    description: post.content,
+    image: post.image || null,
+    authorId: post.person_id,
+    author: post.people || null
+  }));
+
+  return { items, count: count || items.length, page, limit };
 }
+
+async function getPostById(id) {
+  const { data, error } = await supabase
+    .from('posts')
+    .select('*')
+    .eq('id', Number(id))
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+}
+
+async function addPost(post) {
+  const { data, error } = await supabase
+    .from('posts')
+    .insert([{
+      person_id: Number(post.personId),
+      content: post.content,
+      image: post.image || null
+    }])
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+async function deletePost(id) {
+  const { data, error } = await supabase
+    .from('posts')
+    .delete()
+    .eq('id', Number(id))
+    .select();
+
+  if (error) throw error;
+  return data && data.length > 0;
+}
+

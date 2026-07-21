@@ -91,6 +91,11 @@ const profileUpdateSchema = z.object({
   lastName: z.string().optional().nullable()
 });
 
+const postSchema = z.object({
+  content: z.string().min(1, 'El contenido del post no puede estar vacío').max(5000),
+  image: z.string().optional().nullable()
+});
+
 module.exports = {
   registerSchema,
   loginSchema,
@@ -100,5 +105,6 @@ module.exports = {
   bandSchema,
   brandSchema,
   organizerSchema,
-  profileUpdateSchema
+  profileUpdateSchema,
+  postSchema
 };
