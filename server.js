@@ -140,6 +140,30 @@ const aiLimiter = rateLimit({
   message: { error: 'Demasiadas solicitudes de IA. Espera un minuto.' }
 });
 
+const postLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Estás publicando demasiado rápido. Espera un minuto.' }
+});
+
+const NSFW_BLACKLIST = [
+  'porn', 'porno', 'gore', 'sexo', 'sexual', 'desnudo', 'desnuda', 'nude', 'nsfw', 'xxx',
+  'puta', 'puto', 'mierda', 'pendejo', 'carajo', 'culiado', 'culiada', 'cagon', 'cagona'
+];
+
+function containsNSFW(text) {
+  if (!text) return false;
+  const normalized = text.toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, ''); // Quitar acentos
+  return NSFW_BLACKLIST.some(word => {
+    const regex = new RegExp(`\\b${word}\\b`, 'i');
+    return regex.test(normalized);
+  });
+}
+
 app.use(globalLimiter);
 
 app.use((req, res, next) => {
@@ -474,9 +498,14 @@ app.delete('/api/products/:id', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/posts', requireAuth, validate(schemas.postSchema), async (req, res) => {
+app.post('/api/posts', requireAuth, postLimiter, validate(schemas.postSchema), async (req, res) => {
   try {
     const { content, image } = req.body;
+
+    if (containsNSFW(content)) {
+      return res.status(400).json({ error: 'La publicación contiene lenguaje no permitido o inapropiado.' });
+    }
+
     const post = await db.addPost({
       personId: req.user.id,
       content,
