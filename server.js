@@ -310,23 +310,58 @@ app.post('/api/upload', requireAuth, upload.single('file'), async (req, res) => 
       return res.status(400).json({ error: 'No se recibió ningún archivo' });
     }
 
-    const result = await new Promise((resolve, reject) => {
-      const stream = cloudinary.uploader.upload_stream(
-        {
-          folder: 'aourum',
-          transformation: [
-            { width: 1200, crop: 'limit' },
-            { quality: 'auto:good' },
-            { fetch_format: 'auto' },
-          ],
-        },
-        (error, result) => {
-          if (error) reject(error);
-          else resolve(result);
-        }
-      );
-      stream.end(req.file.buffer);
-    });
+    let result;
+    try {
+      // Intentar subir con moderación de IA (AWS Rekognition)
+      result = await new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          {
+            folder: 'aourum',
+            transformation: [
+              { width: 1200, crop: 'limit' },
+              { quality: 'auto:good' },
+              { fetch_format: 'auto' },
+            ],
+            moderation: 'aws_rek'
+          },
+          (error, result) => {
+            if (error) reject(error);
+            else resolve(result);
+          }
+        );
+        stream.end(req.file.buffer);
+      });
+    } catch (modError) {
+      // Fallback si el add-on de AWS Rekognition no está activado en la cuenta de Cloudinary
+      console.warn('Moderación automática fallida o no activada en tu cuenta de Cloudinary. Subiendo sin moderación de IA...', modError.message);
+      result = await new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          {
+            folder: 'aourum',
+            transformation: [
+              { width: 1200, crop: 'limit' },
+              { quality: 'auto:good' },
+              { fetch_format: 'auto' },
+            ],
+          },
+          (error, result) => {
+            if (error) reject(error);
+            else resolve(result);
+          }
+        );
+        stream.end(req.file.buffer);
+      });
+    }
+
+    // Verificar si la IA rechazó la imagen por contenido inapropiado o +18
+    if (result && result.moderation && result.moderation.some(m => m.status === 'rejected')) {
+      try {
+        await cloudinary.uploader.destroy(result.public_id);
+      } catch (delError) {
+        console.error('Error al destruir imagen rechazada:', delError);
+      }
+      return res.status(400).json({ error: 'La imagen subida fue rechazada automáticamente por contener contenido inapropiado o +18 (NSFW).' });
+    }
 
     res.json({ url: result.secure_url });
   } catch (error) {
