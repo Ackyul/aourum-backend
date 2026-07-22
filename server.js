@@ -565,9 +565,19 @@ app.delete('/api/products/:id', requireAuth, async (req, res) => {
   }
 });
 
+app.get('/api/posts', async (req, res) => {
+  try {
+    const { fairId, brandId, personId, page, limit } = req.query;
+    const posts = await db.getPosts({ fairId, brandId, personId, page, limit });
+    res.json(posts);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/posts', requireAuth, postLimiter, validate(schemas.postSchema), async (req, res) => {
   try {
-    const { content, image } = req.body;
+    const { content, image, fairId, brandId, organizerId, authorType = 'person' } = req.body;
 
     // 1. Validate image URL domain (Strict Cloudinary validation)
     if (image && !image.startsWith('https://res.cloudinary.com/decklnx3p/')) {
@@ -579,8 +589,35 @@ app.post('/api/posts', requireAuth, postLimiter, validate(schemas.postSchema), a
       return res.status(400).json({ error: 'La publicación contiene lenguaje no permitido, ofensivo o enlaces externos sospechosos.' });
     }
 
+    // 3. User posts MUST be associated with a Fair!
+    if (authorType === 'person' && !fairId) {
+      return res.status(400).json({ error: 'Para publicar en tu perfil, debes seleccionar una feria activa relacionada.' });
+    }
+
+    // 4. Validate ownership if posting as Brand
+    if (authorType === 'brand') {
+      if (!brandId) {
+        return res.status(400).json({ error: 'Debes seleccionar la marca para publicar.' });
+      }
+      const brands = await db.getBrands();
+      const b = brands.find(item => Number(item.id) === Number(brandId));
+      if (!b) {
+        return res.status(404).json({ error: 'Marca no encontrada.' });
+      }
+      if (Number(b.personId) !== Number(req.user.id)) {
+        const isCollab = await db.isCollaborator(req.user.id, 'brand', brandId);
+        if (!isCollab) {
+          return res.status(403).json({ error: 'No tienes permisos para publicar a nombre de esta marca.' });
+        }
+      }
+    }
+
     const post = await db.addPost({
       personId: req.user.id,
+      brandId: brandId ? Number(brandId) : null,
+      organizerId: organizerId ? Number(organizerId) : null,
+      fairId: fairId ? Number(fairId) : null,
+      authorType,
       content,
       image
     });

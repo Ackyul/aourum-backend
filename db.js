@@ -1883,19 +1883,154 @@ module.exports = {
   isCollaborator,
   isCreatorOriginal,
   getActivityFeed,
+  getPosts,
   getPostById,
   addPost,
   deletePost,
   reportPost
 };
 
-async function getActivityFeed(options = {}) {
+function parsePostData(rawPost, brands = [], fairs = [], organizers = []) {
+  let content = rawPost.content || '';
+  let fairId = null;
+  let brandId = null;
+  let organizerId = null;
+  let authorType = 'person';
+
+  const metaMatch = content.match(/^\[AOURUM_POST_META:(.*?)\]:\s*/);
+  if (metaMatch) {
+    try {
+      const meta = JSON.parse(metaMatch[1]);
+      fairId = meta.fairId ? Number(meta.fairId) : null;
+      brandId = meta.brandId ? Number(meta.brandId) : null;
+      organizerId = meta.organizerId ? Number(meta.organizerId) : null;
+      authorType = meta.authorType || 'person';
+      content = content.replace(metaMatch[0], '');
+    } catch (e) {}
+  }
+
+  const personAuthor = rawPost.people ? {
+    id: rawPost.people.id,
+    name: rawPost.people.name,
+    lastName: rawPost.people.last_name || '',
+    username: rawPost.people.username || `user_${rawPost.people.id}`,
+    logo: rawPost.people.logo || '',
+    occupation: rawPost.people.occupation || ''
+  } : null;
+
+  const brandAuthor = brandId ? brands.find(b => Number(b.id) === Number(brandId)) : null;
+  const organizerAuthor = organizerId ? organizers.find(o => Number(o.id) === Number(organizerId)) : null;
+  const fairObj = fairId ? fairs.find(f => Number(f.id) === Number(fairId)) : null;
+
+  let author = personAuthor;
+  let title = personAuthor ? `${personAuthor.name} ${personAuthor.lastName}`.trim() : 'Usuario Aourum';
+
+  if (authorType === 'brand' && brandAuthor) {
+    author = {
+      id: brandAuthor.id,
+      name: brandAuthor.name,
+      logo: brandAuthor.logo || '',
+      category: brandAuthor.category || 'Marca',
+      slug: brandAuthor.slug || brandAuthor.id,
+      type: 'brand'
+    };
+    title = brandAuthor.name;
+  } else if (authorType === 'organizer' && organizerAuthor) {
+    author = {
+      id: organizerAuthor.id,
+      name: organizerAuthor.name,
+      logo: organizerAuthor.logo || '',
+      slug: organizerAuthor.slug || organizerAuthor.id,
+      type: 'organizer'
+    };
+    title = organizerAuthor.name;
+  }
+
+  return {
+    id: rawPost.id,
+    eventType: 'user_post',
+    timestamp: rawPost.created_at,
+    content,
+    description: content,
+    image: rawPost.image || null,
+    personId: rawPost.person_id,
+    fairId,
+    brandId,
+    organizerId,
+    authorType,
+    author,
+    personAuthor,
+    brandAuthor,
+    organizerAuthor,
+    fair: fairObj ? {
+      id: fairObj.id,
+      name: fairObj.name,
+      location: fairObj.location,
+      date: fairObj.date,
+      banner: fairObj.banner,
+      slug: fairObj.slug || fairObj.id
+    } : null
+  };
+}
+
+async function getPosts(options = {}) {
   const page = Number(options.page) || 1;
-  const limit = Number(options.limit) || 15;
+  const limit = Number(options.limit) || 50;
   const from = (page - 1) * limit;
   const to = from + limit - 1;
 
-  const { data, error, count } = await supabase
+  const [postsRes, brands, fairs, organizers] = await Promise.all([
+    supabase
+      .from('posts')
+      .select(`
+        id,
+        content,
+        image,
+        created_at,
+        person_id,
+        status,
+        people:person_id (
+          id,
+          name,
+          last_name,
+          username,
+          logo,
+          occupation
+        )
+      `, { count: 'exact' })
+      .or('status.eq.approved,status.is.null')
+      .order('created_at', { ascending: false }),
+    getBrands(),
+    getFairs(),
+    getOrganizers()
+  ]);
+
+  if (postsRes.error) throw postsRes.error;
+
+  let items = (postsRes.data || []).map(post => parsePostData(post, brands, fairs, organizers));
+
+  if (options.fairId) {
+    items = items.filter(p => Number(p.fairId) === Number(options.fairId));
+  }
+  if (options.brandId) {
+    items = items.filter(p => Number(p.brandId) === Number(options.brandId));
+  }
+  if (options.personId) {
+    items = items.filter(p => Number(p.personId) === Number(options.personId));
+  }
+
+  const totalCount = items.length;
+  const paginated = items.slice(from, to + 1);
+
+  return { items: paginated, count: totalCount, page, limit };
+}
+
+async function getActivityFeed(options = {}) {
+  return getPosts(options);
+}
+
+async function getPostById(id) {
+  const { data, error } = await supabase
     .from('posts')
     .select(`
       id,
@@ -1903,6 +2038,7 @@ async function getActivityFeed(options = {}) {
       image,
       created_at,
       person_id,
+      status,
       people:person_id (
         id,
         name,
@@ -1911,51 +2047,55 @@ async function getActivityFeed(options = {}) {
         logo,
         occupation
       )
-    `, { count: 'exact' })
-    .or('status.eq.approved,status.is.null')
-    .order('created_at', { ascending: false })
-    .range(from, to);
-
-  if (error) throw error;
-
-  const items = (data || []).map(post => ({
-    id: post.id,
-    eventType: 'user_post',
-    timestamp: post.created_at,
-    title: post.people ? `${post.people.name} ${post.people.last_name || ''}`.trim() : 'Usuario Aourum',
-    description: post.content,
-    image: post.image || null,
-    authorId: post.person_id,
-    author: post.people || null
-  }));
-
-  return { items, count: count || items.length, page, limit };
-}
-
-async function getPostById(id) {
-  const { data, error } = await supabase
-    .from('posts')
-    .select('*')
+    `)
     .eq('id', Number(id))
     .maybeSingle();
 
   if (error) throw error;
-  return data;
+  if (!data) return null;
+  const [brands, fairs, organizers] = await Promise.all([getBrands(), getFairs(), getOrganizers()]);
+  return parsePostData(data, brands, fairs, organizers);
 }
 
 async function addPost(post) {
+  const metaObj = {
+    fairId: post.fairId ? Number(post.fairId) : null,
+    brandId: post.brandId ? Number(post.brandId) : null,
+    organizerId: post.organizerId ? Number(post.organizerId) : null,
+    authorType: post.authorType || 'person'
+  };
+
+  const formattedContent = `[AOURUM_POST_META:${JSON.stringify(metaObj)}]: ${post.content}`;
+
   const { data, error } = await supabase
     .from('posts')
     .insert([{
       person_id: Number(post.personId),
-      content: post.content,
-      image: post.image || null
+      content: formattedContent,
+      image: post.image || null,
+      status: 'approved'
     }])
-    .select()
+    .select(`
+      id,
+      content,
+      image,
+      created_at,
+      person_id,
+      status,
+      people:person_id (
+        id,
+        name,
+        last_name,
+        username,
+        logo,
+        occupation
+      )
+    `)
     .single();
 
   if (error) throw error;
-  return data;
+  const [brands, fairs, organizers] = await Promise.all([getBrands(), getFairs(), getOrganizers()]);
+  return parsePostData(data, brands, fairs, organizers);
 }
 
 async function deletePost(id) {

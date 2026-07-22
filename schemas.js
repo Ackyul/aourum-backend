@@ -93,7 +93,11 @@ const profileUpdateSchema = z.object({
 
 const postSchema = z.object({
   content: z.string().min(1, 'El contenido del post no puede estar vacío').max(5000),
-  image: z.string().optional().nullable()
+  image: z.string().optional().nullable(),
+  fairId: z.preprocess((val) => (val === null || val === undefined || val === '') ? null : Number(val), z.number().int().positive().nullable().optional()),
+  brandId: z.preprocess((val) => (val === null || val === undefined || val === '') ? null : Number(val), z.number().int().positive().nullable().optional()),
+  organizerId: z.preprocess((val) => (val === null || val === undefined || val === '') ? null : Number(val), z.number().int().positive().nullable().optional()),
+  authorType: z.enum(['person', 'brand', 'organizer']).optional().default('person')
 });
 
 module.exports = {
