@@ -428,36 +428,26 @@ app.post('/api/remove-bg-ai', requireAuth, aiLimiter, async (req, res) => {
 
     // Run the Python script to remove background using rembg
     execFile('python', ['remove_bg.py', inputPath, outputPath], (error, stdout, stderr) => {
-      // Clean up input file
-      if (fs.existsSync(inputPath)) {
-        try { fs.unlinkSync(inputPath); } catch (e) { console.error(e); }
-      }
-
-      if (error) {
-        console.error('Error al ejecutar rembg:', stderr || error || stdout);
-        if (fs.existsSync(outputPath)) {
-          try { fs.unlinkSync(outputPath); } catch (e) { console.error(e); }
-        }
-        return res.status(500).json({ error: 'Error al procesar la imagen con IA local. Asegúrate de que rembg esté instalado o configura la API de PhotoRoom.' });
-      }
+      const cleanFiles = () => {
+        if (fs.existsSync(inputPath)) { try { fs.unlinkSync(inputPath); } catch (e) {} }
+        if (fs.existsSync(outputPath)) { try { fs.unlinkSync(outputPath); } catch (e) {} }
+      };
 
       try {
-        // Read the transparent output image
+        if (error) {
+          console.error('Error al ejecutar rembg:', stderr || error || stdout);
+          cleanFiles();
+          return res.status(500).json({ error: 'Error al procesar la imagen con IA local. Asegúrate de que rembg esté instalado o configura la API de PhotoRoom.' });
+        }
+
         const outBuffer = fs.readFileSync(outputPath);
         const outBase64 = outBuffer.toString('base64');
         const dataUrl = `data:image/png;base64,${outBase64}`;
-
-        // Clean up output file
-        if (fs.existsSync(outputPath)) {
-          try { fs.unlinkSync(outputPath); } catch (e) { console.error(e); }
-        }
-
-        res.json({ image: dataUrl });
+        cleanFiles();
+        return res.json({ image: dataUrl });
       } catch (readErr) {
         console.error('Error al leer imagen procesada:', readErr);
-        if (fs.existsSync(outputPath)) {
-          try { fs.unlinkSync(outputPath); } catch (e) { console.error(e); }
-        }
+        cleanFiles();
         return res.status(500).json({ error: 'Error al leer la imagen procesada de la IA' });
       }
     });
@@ -1813,9 +1803,33 @@ app.delete('/api/:entityType/:id/collaborators/:personId', requireAuth, async (r
   }
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`✅ AOURUM API corriendo en http://localhost:${PORT}`);
   if (!process.env.CLOUDINARY_CLOUD_NAME) {
     console.warn('⚠️  ADVERTENCIA: Variables de Cloudinary no encontradas. Crea el archivo .env');
   }
+});
+
+const gracefulShutdown = (signal) => {
+  console.log(`\n🛑 Recibida señal ${signal}. Cerrando servidor Express limpiamente...`);
+  server.close(() => {
+    console.log('✅ Servidor Express cerrado.');
+    process.exit(0);
+  });
+
+  setTimeout(() => {
+    console.error('⚠️  Cierre forzado por tiempo de espera excedido');
+    process.exit(1);
+  }, 10000);
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection en Promise:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('❌ Uncaught Exception:', err);
 });
