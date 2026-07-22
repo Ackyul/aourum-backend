@@ -1690,7 +1690,8 @@ async function getBrandBySlug(slug) {
   if (isId) {
     query = query.eq('id', Number(slug));
   } else {
-    query = query.eq('slug', slug);
+    const altSlug = slug.includes('_') ? slug.replace(/_/g, '-') : slug.replace(/-/g, '_');
+    query = query.or(`slug.eq.${slug},slug.eq.${altSlug}`);
   }
   const { data, error } = await query.maybeSingle();
   if (error) throw error;
@@ -1715,7 +1716,8 @@ async function getBandBySlug(slug) {
   if (isId) {
     query = query.eq('id', Number(slug));
   } else {
-    query = query.eq('slug', slug);
+    const altSlug = slug.includes('_') ? slug.replace(/_/g, '-') : slug.replace(/-/g, '_');
+    query = query.or(`slug.eq.${slug},slug.eq.${altSlug}`);
   }
   const { data, error } = await query.maybeSingle();
   if (error) throw error;
@@ -1751,7 +1753,8 @@ async function getFairBySlug(slug) {
   if (isId) {
     query = query.eq('id', Number(slug));
   } else {
-    query = query.eq('slug', slug);
+    const altSlug = slug.includes('_') ? slug.replace(/_/g, '-') : slug.replace(/-/g, '_');
+    query = query.or(`slug.eq.${slug},slug.eq.${altSlug}`);
   }
   const { data, error } = await query.maybeSingle();
   if (error) throw error;
