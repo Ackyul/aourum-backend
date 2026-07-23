@@ -850,7 +850,7 @@ app.put('/api/bands/:id', requireAuth, requireOwnership('band'), validate(schema
 app.put('/api/brands/:id', requireAuth, requireOwnership('brand'), validate(schemas.brandSchema), async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, owner, category, description, logo, slug, whatsappNumber } = req.body;
+    const { name, owner, category, description, logo, slug, whatsappNumber, themeColor, brandDesign } = req.body;
     let cleanSlug = undefined;
     if (slug !== undefined) {
       cleanSlug = slug.toLowerCase().replace(/[^a-z0-9_]/g, '').trim();
@@ -862,7 +862,7 @@ app.put('/api/brands/:id', requireAuth, requireOwnership('brand'), validate(sche
         return res.status(409).json({ error: 'El identificador de URL (slug) ya está en uso.' });
       }
     }
-    const updated = await db.updateBrand(id, { name, owner, category, description, logo, slug: cleanSlug, whatsappNumber });
+    const updated = await db.updateBrand(id, { name, owner, category, description, logo, slug: cleanSlug, whatsappNumber, themeColor, brandDesign });
     if (!updated) return res.status(404).json({ error: 'Marca no encontrada' });
     res.json(updated);
   } catch (error) {

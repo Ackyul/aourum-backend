@@ -480,6 +480,8 @@ async function getBrands(options = {}) {
     logo: b.logo,
     slug: b.slug,
     whatsappNumber: b.whatsapp_number || null,
+    themeColor: b.theme_color || '',
+    brandDesign: b.brand_design || {},
     personIds: b.person_brands ? b.person_brands.map(pb => Number(pb.person_id)) : [],
     collaborators: b.person_brands ? b.person_brands.map(pb => ({ personId: Number(pb.person_id), role: pb.role || 'colaborador' })) : []
   }));
@@ -531,6 +533,8 @@ async function addBrand(brand) {
     logo: data.logo,
     slug: data.slug,
     whatsappNumber: data.whatsapp_number || null,
+    themeColor: data.theme_color || '',
+    brandDesign: data.brand_design || {},
     personIds: personId ? [personId] : [],
     collaborators: personId ? [{ personId, role: 'creador_original' }] : []
   };
@@ -549,6 +553,12 @@ async function updateBrand(id, updatedBrand) {
   }
   if (updatedBrand.whatsappNumber !== undefined) {
     updateFields.whatsapp_number = updatedBrand.whatsappNumber || null;
+  }
+  if (updatedBrand.themeColor !== undefined) {
+    updateFields.theme_color = updatedBrand.themeColor || '';
+  }
+  if (updatedBrand.brandDesign !== undefined) {
+    updateFields.brand_design = updatedBrand.brandDesign || {};
   }
   const { data, error } = await supabase
     .from('brands')
@@ -576,6 +586,8 @@ async function updateBrand(id, updatedBrand) {
     logo: data.logo,
     slug: data.slug,
     whatsappNumber: data.whatsapp_number || null,
+    themeColor: data.theme_color || '',
+    brandDesign: data.brand_design || {},
     personIds: junctions ? junctions.map(j => Number(j.person_id)) : [],
     collaborators: junctions ? junctions.map(j => ({ personId: Number(j.person_id), role: j.role || 'colaborador' })) : []
   };
