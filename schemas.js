@@ -67,8 +67,10 @@ const brandSchema = z.object({
   logo: z.string().optional().nullable(),
   personId: z.preprocess((val) => val ? Number(val) : undefined, z.number().int().positive().optional()),
   slug: z.string().optional(),
-  whatsappNumber: z.string().optional().nullable()
-});
+  whatsappNumber: z.string().optional().nullable(),
+  themeColor: z.string().optional().nullable(),
+  brandDesign: z.record(z.any()).optional().default({})
+}).passthrough();
 
 const organizerSchema = z.object({
   name: z.string().min(1, 'El nombre es requerido'),
