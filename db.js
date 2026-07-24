@@ -726,6 +726,8 @@ async function getPeople(options = {}) {
     lastName: p.last_name || null,
     googleId: p.google_id || null,
     facebookId: p.facebook_id || null,
+    hasGoogleLinked: !!p.google_id,
+    hasFacebookLinked: !!p.facebook_id,
     brandIds: p.person_brands ? p.person_brands.map(b => Number(b.brand_id)) : [],
     brandRoles: p.person_brands ? p.person_brands.map(b => ({ brandId: Number(b.brand_id), role: b.role || 'colaborador' })) : [],
     organizerIds: p.person_organizers ? p.person_organizers.map(o => Number(o.organizer_id)) : [],
@@ -792,6 +794,8 @@ async function addPerson(person) {
     lastName: data.last_name || null,
     googleId: data.google_id || null,
     facebookId: data.facebook_id || null,
+    hasGoogleLinked: !!data.google_id,
+    hasFacebookLinked: !!data.facebook_id,
     brandIds,
     organizerIds,
     bandIds
@@ -800,15 +804,15 @@ async function addPerson(person) {
 
 async function updatePerson(id, updatedPerson) {
   const personId = Number(id);
-  const updateFields = {
-    name: updatedPerson.name,
-    email: updatedPerson.email,
-    password_hash: updatedPerson.passwordHash,
-    occupation: updatedPerson.occupation,
-    description: updatedPerson.description,
-    logo: updatedPerson.logo,
-    last_name: updatedPerson.lastName !== undefined ? updatedPerson.lastName : null
-  };
+  const updateFields = {};
+
+  if (updatedPerson.name !== undefined) updateFields.name = updatedPerson.name;
+  if (updatedPerson.email !== undefined) updateFields.email = updatedPerson.email;
+  if (updatedPerson.passwordHash !== undefined) updateFields.password_hash = updatedPerson.passwordHash;
+  if (updatedPerson.occupation !== undefined) updateFields.occupation = updatedPerson.occupation;
+  if (updatedPerson.description !== undefined) updateFields.description = updatedPerson.description;
+  if (updatedPerson.logo !== undefined) updateFields.logo = updatedPerson.logo;
+  if (updatedPerson.lastName !== undefined) updateFields.last_name = updatedPerson.lastName;
 
   if (updatedPerson.username !== undefined) {
     updateFields.username = updatedPerson.username || slugifyUsername(updatedPerson.name);
@@ -885,6 +889,8 @@ async function updatePerson(id, updatedPerson) {
     lastName: data.last_name || null,
     googleId: data.google_id || null,
     facebookId: data.facebook_id || null,
+    hasGoogleLinked: !!data.google_id,
+    hasFacebookLinked: !!data.facebook_id,
     brandIds,
     organizerIds,
     bandIds

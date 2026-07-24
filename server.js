@@ -929,12 +929,33 @@ app.get('/api/people', async (req, res) => {
       search,
       paginated
     });
+
+    let authUserId = null;
+    try {
+      const authHeader = req.headers.authorization;
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.split(' ')[1];
+        const payload = jwt.verify(token, JWT_SECRET);
+        authUserId = payload.id;
+      }
+    } catch (e) {}
+
+    const sanitize = (p) => {
+      const isSelf = authUserId && Number(p.id) === Number(authUserId);
+      const { passwordHash, ...safe } = p;
+      if (!isSelf) {
+        delete safe.email;
+        delete safe.googleId;
+        delete safe.facebookId;
+      }
+      return safe;
+    };
+
     if (paginated) {
-      result.items = result.items.map(({ passwordHash, email, googleId, facebookId, ...safe }) => safe);
+      result.items = result.items.map(sanitize);
       res.json(result);
     } else {
-      const safePeople = result.map(({ passwordHash, email, googleId, facebookId, ...safe }) => safe);
-      res.json(safePeople);
+      res.json(result.map(sanitize));
     }
   } catch (error) {
     res.status(500).json({ error: error.message });
