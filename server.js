@@ -652,6 +652,52 @@ app.delete('/api/posts/:id', requireAuth, async (req, res) => {
   }
 });
 
+app.post('/api/posts/:id/like', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await db.togglePostLike(id, req.user.id);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/posts/:id/comments', requireAuth, postLimiter, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { content } = req.body;
+    if (!content || !content.trim()) {
+      return res.status(400).json({ error: 'El contenido del comentario no puede estar vacío.' });
+    }
+
+    const person = await db.getPersonById(req.user.id);
+    if (!person) {
+      return res.status(404).json({ error: 'Usuario no encontrado.' });
+    }
+
+    const result = await db.addPostComment(id, {
+      personId: req.user.id,
+      content: content.trim(),
+      authorName: `${person.name} ${person.lastName || ''}`.trim(),
+      authorLogo: person.logo || '',
+      authorUsername: person.username || `user_${person.id}`
+    });
+    res.status(201).json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/posts/:id/comments/:commentId', requireAuth, async (req, res) => {
+  try {
+    const { id, commentId } = req.params;
+    const result = await db.deletePostComment(id, commentId, req.user.id);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 
 app.get('/api/fairs', async (req, res) => {
   try {

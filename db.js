@@ -1908,7 +1908,10 @@ module.exports = {
   getPostById,
   addPost,
   deletePost,
-  reportPost
+  reportPost,
+  togglePostLike,
+  addPostComment,
+  deletePostComment
 };
 
 function parsePostData(rawPost, brands = [], fairs = [], organizers = []) {
@@ -1917,6 +1920,8 @@ function parsePostData(rawPost, brands = [], fairs = [], organizers = []) {
   let brandId = null;
   let organizerId = null;
   let authorType = 'person';
+  let likes = [];
+  let comments = [];
 
   const metaMatch = content.match(/^\[AOURUM_POST_META:(.*?)\]:\s*/);
   if (metaMatch) {
@@ -1926,6 +1931,8 @@ function parsePostData(rawPost, brands = [], fairs = [], organizers = []) {
       brandId = meta.brandId ? Number(meta.brandId) : null;
       organizerId = meta.organizerId ? Number(meta.organizerId) : null;
       authorType = meta.authorType || 'person';
+      likes = Array.isArray(meta.likes) ? meta.likes.map(Number) : [];
+      comments = Array.isArray(meta.comments) ? meta.comments : [];
       content = content.replace(metaMatch[0], '');
     } catch (e) {}
   }
@@ -1983,6 +1990,10 @@ function parsePostData(rawPost, brands = [], fairs = [], organizers = []) {
     personAuthor,
     brandAuthor,
     organizerAuthor,
+    likes,
+    likesCount: likes.length,
+    comments,
+    commentsCount: comments.length,
     fair: fairObj ? {
       id: fairObj.id,
       name: fairObj.name,
@@ -1992,6 +2003,144 @@ function parsePostData(rawPost, brands = [], fairs = [], organizers = []) {
       slug: fairObj.slug || fairObj.id
     } : null
   };
+}
+
+async function togglePostLike(postId, personId) {
+  const pId = Number(personId);
+  const { data: rawPost, error: fetchErr } = await supabase
+    .from('posts')
+    .select('id, content')
+    .eq('id', Number(postId))
+    .maybeSingle();
+
+  if (fetchErr || !rawPost) throw new Error('Publicación no encontrada');
+
+  let metaObj = { fairId: null, brandId: null, organizerId: null, authorType: 'person', likes: [], comments: [] };
+  let mainContent = rawPost.content || '';
+
+  const metaMatch = mainContent.match(/^\[AOURUM_POST_META:(.*?)\]:\s*/);
+  if (metaMatch) {
+    try {
+      metaObj = { ...metaObj, ...JSON.parse(metaMatch[1]) };
+      mainContent = mainContent.replace(metaMatch[0], '');
+    } catch (e) {}
+  }
+
+  if (!Array.isArray(metaObj.likes)) metaObj.likes = [];
+  metaObj.likes = metaObj.likes.map(Number);
+
+  const idx = metaObj.likes.indexOf(pId);
+  let liked = false;
+  if (idx >= 0) {
+    metaObj.likes.splice(idx, 1);
+    liked = false;
+  } else {
+    metaObj.likes.push(pId);
+    liked = true;
+  }
+
+  const updatedFormatted = `[AOURUM_POST_META:${JSON.stringify(metaObj)}]: ${mainContent}`;
+  const { error: updateErr } = await supabase
+    .from('posts')
+    .update({ content: updatedFormatted })
+    .eq('id', Number(postId));
+
+  if (updateErr) throw updateErr;
+
+  return { liked, likes: metaObj.likes, likesCount: metaObj.likes.length };
+}
+
+async function addPostComment(postId, commentData) {
+  const { personId, content, authorName, authorLogo, authorUsername } = commentData;
+  const { data: rawPost, error: fetchErr } = await supabase
+    .from('posts')
+    .select('id, content')
+    .eq('id', Number(postId))
+    .maybeSingle();
+
+  if (fetchErr || !rawPost) throw new Error('Publicación no encontrada');
+
+  let metaObj = { fairId: null, brandId: null, organizerId: null, authorType: 'person', likes: [], comments: [] };
+  let mainContent = rawPost.content || '';
+
+  const metaMatch = mainContent.match(/^\[AOURUM_POST_META:(.*?)\]:\s*/);
+  if (metaMatch) {
+    try {
+      metaObj = { ...metaObj, ...JSON.parse(metaMatch[1]) };
+      mainContent = mainContent.replace(metaMatch[0], '');
+    } catch (e) {}
+  }
+
+  if (!Array.isArray(metaObj.comments)) metaObj.comments = [];
+
+  const newComment = {
+    id: Date.now().toString() + '_' + Math.random().toString(36).substring(2, 7),
+    personId: Number(personId),
+    content: content.trim(),
+    createdAt: new Date().toISOString(),
+    authorName: authorName || 'Usuario Aourum',
+    authorLogo: authorLogo || '',
+    authorUsername: authorUsername || ''
+  };
+
+  metaObj.comments.push(newComment);
+
+  const updatedFormatted = `[AOURUM_POST_META:${JSON.stringify(metaObj)}]: ${mainContent}`;
+  const { error: updateErr } = await supabase
+    .from('posts')
+    .update({ content: updatedFormatted })
+    .eq('id', Number(postId));
+
+  if (updateErr) throw updateErr;
+
+  return { comment: newComment, comments: metaObj.comments, commentsCount: metaObj.comments.length };
+}
+
+async function deletePostComment(postId, commentId, personId) {
+  const pId = Number(personId);
+  const { data: rawPost, error: fetchErr } = await supabase
+    .from('posts')
+    .select('id, content, person_id')
+    .eq('id', Number(postId))
+    .maybeSingle();
+
+  if (fetchErr || !rawPost) throw new Error('Publicación no encontrada');
+
+  let metaObj = { fairId: null, brandId: null, organizerId: null, authorType: 'person', likes: [], comments: [] };
+  let mainContent = rawPost.content || '';
+
+  const metaMatch = mainContent.match(/^\[AOURUM_POST_META:(.*?)\]:\s*/);
+  if (metaMatch) {
+    try {
+      metaObj = { ...metaObj, ...JSON.parse(metaMatch[1]) };
+      mainContent = mainContent.replace(metaMatch[0], '');
+    } catch (e) {}
+  }
+
+  if (!Array.isArray(metaObj.comments)) metaObj.comments = [];
+
+  const isPostOwner = Number(rawPost.person_id) === pId;
+  const initialLen = metaObj.comments.length;
+  metaObj.comments = metaObj.comments.filter(c => {
+    if (c.id === commentId) {
+      if (Number(c.personId) === pId || isPostOwner) return false;
+    }
+    return true;
+  });
+
+  if (metaObj.comments.length === initialLen) {
+    throw new Error('No tienes permiso para eliminar este comentario');
+  }
+
+  const updatedFormatted = `[AOURUM_POST_META:${JSON.stringify(metaObj)}]: ${mainContent}`;
+  const { error: updateErr } = await supabase
+    .from('posts')
+    .update({ content: updatedFormatted })
+    .eq('id', Number(postId));
+
+  if (updateErr) throw updateErr;
+
+  return { comments: metaObj.comments, commentsCount: metaObj.comments.length };
 }
 
 async function getPosts(options = {}) {
