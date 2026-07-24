@@ -579,10 +579,6 @@ app.post('/api/posts', requireAuth, postLimiter, validate(schemas.postSchema), a
       return res.status(400).json({ error: 'La publicación contiene lenguaje no permitido, ofensivo o enlaces externos sospechosos.' });
     }
 
-    // 3. User posts MUST be associated with a Fair!
-    if (authorType === 'person' && !fairId) {
-      return res.status(400).json({ error: 'Para publicar en tu perfil, debes seleccionar una feria activa relacionada.' });
-    }
 
     // 4. Validate ownership if posting as Brand
     if (authorType === 'brand') {
