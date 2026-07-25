@@ -639,9 +639,32 @@ app.delete('/api/posts/:id', requireAuth, async (req, res) => {
     if (!post) {
       return res.status(404).json({ error: 'Publicación no encontrada.' });
     }
-    if (post.person_id !== req.user.id) {
+
+    const userId = Number(req.user.id);
+    const postCreatorId = Number(post.personId || post.person_id);
+
+    let canDelete = postCreatorId === userId;
+
+    if (!canDelete && post.authorType === 'brand' && post.brandId) {
+      const brands = await db.getBrands();
+      const b = brands.find(item => Number(item.id) === Number(post.brandId));
+      if (b && (Number(b.personId) === userId || await db.isCollaborator(userId, 'brand', post.brandId))) {
+        canDelete = true;
+      }
+    }
+
+    if (!canDelete && post.authorType === 'organizer' && post.organizerId) {
+      const organizers = await db.getOrganizers();
+      const o = organizers.find(item => Number(item.id) === Number(post.organizerId));
+      if (o && (Number(o.personId) === userId || await db.isCollaborator(userId, 'organizer', post.organizerId))) {
+        canDelete = true;
+      }
+    }
+
+    if (!canDelete) {
       return res.status(403).json({ error: 'No tienes permiso para eliminar esta publicación.' });
     }
+
     const success = await db.deletePost(id);
     if (!success) {
       return res.status(404).json({ error: 'No se pudo eliminar la publicación.' });
