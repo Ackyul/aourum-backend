@@ -482,6 +482,7 @@ async function getBrands(options = {}) {
     whatsappNumber: b.whatsapp_number || null,
     themeColor: b.theme_color || '',
     brandDesign: b.brand_design || {},
+    city: b.city || '',
     personIds: b.person_brands ? b.person_brands.map(pb => Number(pb.person_id)) : [],
     collaborators: b.person_brands ? b.person_brands.map(pb => ({ personId: Number(pb.person_id), role: pb.role || 'colaborador' })) : []
   }));
@@ -510,7 +511,8 @@ async function addBrand(brand) {
       description: brand.description || '',
       logo: brand.logo || '',
       slug: slug,
-      whatsapp_number: brand.whatsappNumber || null
+      whatsapp_number: brand.whatsappNumber || null,
+      city: brand.city || ''
     }])
     .select()
     .single();
@@ -535,6 +537,7 @@ async function addBrand(brand) {
     whatsappNumber: data.whatsapp_number || null,
     themeColor: data.theme_color || '',
     brandDesign: data.brand_design || {},
+    city: data.city || '',
     personIds: personId ? [personId] : [],
     collaborators: personId ? [{ personId, role: 'creador_original' }] : []
   };
@@ -559,6 +562,9 @@ async function updateBrand(id, updatedBrand) {
   }
   if (updatedBrand.brandDesign !== undefined) {
     updateFields.brand_design = updatedBrand.brandDesign || {};
+  }
+  if (updatedBrand.city !== undefined) {
+    updateFields.city = updatedBrand.city || '';
   }
   const { data, error } = await supabase
     .from('brands')
@@ -588,6 +594,7 @@ async function updateBrand(id, updatedBrand) {
     whatsappNumber: data.whatsapp_number || null,
     themeColor: data.theme_color || '',
     brandDesign: data.brand_design || {},
+    city: data.city || '',
     personIds: junctions ? junctions.map(j => Number(j.person_id)) : [],
     collaborators: junctions ? junctions.map(j => ({ personId: Number(j.person_id), role: j.role || 'colaborador' })) : []
   };
@@ -724,6 +731,8 @@ async function getPeople(options = {}) {
     description: p.description,
     logo: p.logo,
     lastName: p.last_name || null,
+    city: p.city || '',
+    interests: p.interests || '',
     googleId: p.google_id || null,
     facebookId: p.facebook_id || null,
     hasGoogleLinked: !!p.google_id,
@@ -759,6 +768,8 @@ async function addPerson(person) {
       description: person.description || '',
       logo: person.logo || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&h=150&fit=crop&q=80',
       last_name: person.lastName || null,
+      city: person.city || '',
+      interests: person.interests || '',
       google_id: person.googleId || null,
       facebook_id: person.facebookId || null
     }])
@@ -792,6 +803,8 @@ async function addPerson(person) {
     description: data.description,
     logo: data.logo,
     lastName: data.last_name || null,
+    city: data.city || '',
+    interests: data.interests || '',
     googleId: data.google_id || null,
     facebookId: data.facebook_id || null,
     hasGoogleLinked: !!data.google_id,
@@ -813,6 +826,8 @@ async function updatePerson(id, updatedPerson) {
   if (updatedPerson.description !== undefined) updateFields.description = updatedPerson.description;
   if (updatedPerson.logo !== undefined) updateFields.logo = updatedPerson.logo;
   if (updatedPerson.lastName !== undefined) updateFields.last_name = updatedPerson.lastName;
+  if (updatedPerson.city !== undefined) updateFields.city = updatedPerson.city || '';
+  if (updatedPerson.interests !== undefined) updateFields.interests = updatedPerson.interests || '';
 
   if (updatedPerson.username !== undefined) {
     updateFields.username = updatedPerson.username || slugifyUsername(updatedPerson.name);
@@ -887,6 +902,8 @@ async function updatePerson(id, updatedPerson) {
     description: data.description,
     logo: data.logo,
     lastName: data.last_name || null,
+    city: data.city || '',
+    interests: data.interests || '',
     googleId: data.google_id || null,
     facebookId: data.facebook_id || null,
     hasGoogleLinked: !!data.google_id,

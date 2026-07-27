@@ -8,7 +8,9 @@ const registerSchema = z.object({
   description: z.string().optional().default(''),
   logo: z.string().optional().default(''),
   username: z.string().regex(/^[a-z0-9_]*$/, 'El nombre de usuario solo puede contener letras minúsculas, números y guiones bajos').optional(),
-  lastName: z.string().optional().nullable()
+  lastName: z.string().optional().nullable(),
+  city: z.string().optional().nullable(),
+  interests: z.string().optional().nullable()
 });
 
 const loginSchema = z.object({
@@ -69,7 +71,8 @@ const brandSchema = z.object({
   slug: z.string().optional(),
   whatsappNumber: z.string().optional().nullable(),
   themeColor: z.string().optional().nullable(),
-  brandDesign: z.record(z.any()).optional().default({})
+  brandDesign: z.record(z.any()).optional().default({}),
+  city: z.string().optional().nullable()
 }).passthrough();
 
 const organizerSchema = z.object({
@@ -90,7 +93,9 @@ const profileUpdateSchema = z.object({
   organizerIds: z.array(z.preprocess((val) => Number(val), z.number())).optional().default([]),
   bandIds: z.array(z.preprocess((val) => Number(val), z.number())).optional().default([]),
   username: z.string().regex(/^[a-z0-9_]*$/, 'El nombre de usuario solo puede contener letras minúsculas, números y guiones bajos').optional().nullable(),
-  lastName: z.string().optional().nullable()
+  lastName: z.string().optional().nullable(),
+  city: z.string().optional().nullable(),
+  interests: z.string().optional().nullable()
 });
 
 const postSchema = z.object({

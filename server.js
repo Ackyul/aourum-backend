@@ -915,7 +915,7 @@ app.put('/api/bands/:id', requireAuth, requireOwnership('band'), validate(schema
 app.put('/api/brands/:id', requireAuth, requireOwnership('brand'), validate(schemas.brandSchema), async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, owner, category, description, logo, slug, whatsappNumber, themeColor, brandDesign } = req.body;
+    const { name, owner, category, description, logo, slug, whatsappNumber, themeColor, brandDesign, city } = req.body;
     let cleanSlug = undefined;
     if (slug !== undefined) {
       cleanSlug = slug.toLowerCase().replace(/[^a-z0-9_]/g, '').trim();
@@ -927,7 +927,7 @@ app.put('/api/brands/:id', requireAuth, requireOwnership('brand'), validate(sche
         return res.status(409).json({ error: 'El identificador de URL (slug) ya está en uso.' });
       }
     }
-    const updated = await db.updateBrand(id, { name, owner, category, description, logo, slug: cleanSlug, whatsappNumber, themeColor, brandDesign });
+    const updated = await db.updateBrand(id, { name, owner, category, description, logo, slug: cleanSlug, whatsappNumber, themeColor, brandDesign, city });
     if (!updated) return res.status(404).json({ error: 'Marca no encontrada' });
     res.json(updated);
   } catch (error) {
@@ -1061,7 +1061,7 @@ app.put('/api/people/:id', requireAuth, validate(schemas.profileUpdateSchema), a
     if (req.user.id !== Number(id)) {
       return res.status(403).json({ error: 'Solo puedes editar tu propio perfil.' });
     }
-    const { name, occupation, description, logo, brandIds, organizerIds, bandIds, username, lastName } = req.body;
+    const { name, occupation, description, logo, brandIds, organizerIds, bandIds, username, lastName, city, interests } = req.body;
 
     const cleanUsername = username ? username.toLowerCase().replace(/[^a-z0-9_]/g, '').trim() : '';
     if (cleanUsername) {
@@ -1080,7 +1080,9 @@ app.put('/api/people/:id', requireAuth, validate(schemas.profileUpdateSchema), a
       organizerIds,
       bandIds,
       username: cleanUsername || undefined,
-      lastName
+      lastName,
+      city,
+      interests
     });
     if (!updated) return res.status(404).json({ error: 'Persona no encontrada' });
     const { passwordHash, ...safe } = updated;
