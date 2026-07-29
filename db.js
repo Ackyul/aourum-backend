@@ -511,6 +511,21 @@ async function getBrands(options = {}) {
 async function addBrand(brand) {
   const personId = brand.personId ? Number(brand.personId) : null;
   const slug = await generateUniqueSlug('brands', brand.name);
+  const defaultThemeColor = brand.themeColor || '#D4AF37';
+  const defaultDesign = brand.brandDesign || { customBgColor: '#FAF9F0', bgStyle: 'solid', logoShape: 'circle', cardStyle: 'glass', fontFamily: 'Inter' };
+
+  let descPayload = brand.description || '';
+  if (!descPayload || !descPayload.startsWith('{')) {
+    descPayload = JSON.stringify({
+      text: brand.description || '',
+      banner: '',
+      theme_color: defaultThemeColor,
+      tagline: '',
+      customBgColor: defaultDesign.customBgColor || '#FAF9F0',
+      bgStyle: defaultDesign.bgStyle || 'solid',
+      brandDesign: defaultDesign
+    });
+  }
 
   const { data, error } = await supabase
     .from('brands')
@@ -518,10 +533,12 @@ async function addBrand(brand) {
       name: brand.name,
       owner: brand.owner || '',
       category: brand.category || '',
-      description: brand.description || '',
+      description: descPayload,
       logo: brand.logo || '',
       slug: slug,
       whatsapp_number: brand.whatsappNumber || null,
+      theme_color: defaultThemeColor,
+      brand_design: defaultDesign,
       city: brand.city || '',
       person_id: personId || null
     }])
@@ -547,8 +564,8 @@ async function addBrand(brand) {
     logo: data.logo,
     slug: data.slug,
     whatsappNumber: data.whatsapp_number || null,
-    themeColor: data.theme_color || '',
-    brandDesign: data.brand_design || {},
+    themeColor: data.theme_color || defaultThemeColor,
+    brandDesign: data.brand_design || defaultDesign,
     city: data.city || '',
     personIds: personId ? [personId] : [],
     collaborators: personId ? [{ personId, role: 'creador_original' }] : []
