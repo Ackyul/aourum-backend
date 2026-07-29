@@ -471,21 +471,31 @@ async function getBrands(options = {}) {
   const { data, error, count } = await query;
   if (error) throw error;
 
-  const items = (data || []).map(b => ({
-    id: Number(b.id),
-    name: b.name,
-    owner: b.owner,
-    category: b.category,
-    description: b.description,
-    logo: b.logo,
-    slug: b.slug,
-    whatsappNumber: b.whatsapp_number || null,
-    themeColor: b.theme_color || '',
-    brandDesign: b.brand_design || {},
-    city: b.city || '',
-    personIds: b.person_brands ? b.person_brands.map(pb => Number(pb.person_id)) : [],
-    collaborators: b.person_brands ? b.person_brands.map(pb => ({ personId: Number(pb.person_id), role: pb.role || 'colaborador' })) : []
-  }));
+  const items = (data || []).map(b => {
+    const mainPersonId = b.person_id ? Number(b.person_id) : (b.person_brands && b.person_brands.length > 0 ? Number(b.person_brands[0].person_id) : null);
+    const collabList = (b.person_brands && b.person_brands.length > 0)
+      ? b.person_brands.map(pb => ({ personId: Number(pb.person_id), role: pb.role || 'colaborador' }))
+      : (mainPersonId ? [{ personId: mainPersonId, role: 'creador_original' }] : []);
+    const pIds = (b.person_brands && b.person_brands.length > 0)
+      ? b.person_brands.map(pb => Number(pb.person_id))
+      : (mainPersonId ? [mainPersonId] : []);
+    return {
+      id: Number(b.id),
+      personId: mainPersonId,
+      name: b.name,
+      owner: b.owner,
+      category: b.category,
+      description: b.description,
+      logo: b.logo,
+      slug: b.slug,
+      whatsappNumber: b.whatsapp_number || null,
+      themeColor: b.theme_color || '',
+      brandDesign: b.brand_design || {},
+      city: b.city || '',
+      personIds: pIds,
+      collaborators: collabList
+    };
+  });
 
   if (options.paginated) {
     return {
@@ -512,7 +522,8 @@ async function addBrand(brand) {
       logo: brand.logo || '',
       slug: slug,
       whatsapp_number: brand.whatsappNumber || null,
-      city: brand.city || ''
+      city: brand.city || '',
+      person_id: personId || null
     }])
     .select()
     .single();
@@ -528,6 +539,7 @@ async function addBrand(brand) {
 
   return {
     id: Number(data.id),
+    personId: personId,
     name: data.name,
     owner: data.owner,
     category: data.category,
@@ -583,8 +595,17 @@ async function updateBrand(id, updatedBrand) {
     .select('person_id, role')
     .eq('brand_id', Number(id));
 
+  const mainPersonId = data.person_id ? Number(data.person_id) : (junctions && junctions.length > 0 ? Number(junctions[0].person_id) : null);
+  const collabList = (junctions && junctions.length > 0)
+    ? junctions.map(j => ({ personId: Number(j.person_id), role: j.role || 'colaborador' }))
+    : (mainPersonId ? [{ personId: mainPersonId, role: 'creador_original' }] : []);
+  const pIds = (junctions && junctions.length > 0)
+    ? junctions.map(j => Number(j.person_id))
+    : (mainPersonId ? [mainPersonId] : []);
+
   return {
     id: Number(data.id),
+    personId: mainPersonId,
     name: data.name,
     owner: data.owner,
     category: data.category,
@@ -595,8 +616,8 @@ async function updateBrand(id, updatedBrand) {
     themeColor: data.theme_color || '',
     brandDesign: data.brand_design || {},
     city: data.city || '',
-    personIds: junctions ? junctions.map(j => Number(j.person_id)) : [],
-    collaborators: junctions ? junctions.map(j => ({ personId: Number(j.person_id), role: j.role || 'colaborador' })) : []
+    personIds: pIds,
+    collaborators: collabList
   };
 }
 
@@ -1664,6 +1685,14 @@ async function getFairById(id) {
 }
 
 async function isCollaborator(personId, entityType, entityId) {
+  const mainTable = entityType === 'brand' ? 'brands' : entityType === 'band' ? 'bands' : entityType === 'organizer' ? 'organizers' : '';
+  if (mainTable) {
+    const { data: mainObj } = await supabase.from(mainTable).select('person_id').eq('id', Number(entityId)).maybeSingle();
+    if (mainObj && mainObj.person_id && Number(mainObj.person_id) === Number(personId)) {
+      return true;
+    }
+  }
+
   let table = '';
   let idCol = '';
   if (entityType === 'brand') {
@@ -1690,6 +1719,14 @@ async function isCollaborator(personId, entityType, entityId) {
 }
 
 async function isCreatorOriginal(personId, entityType, entityId) {
+  const mainTable = entityType === 'brand' ? 'brands' : entityType === 'band' ? 'bands' : entityType === 'organizer' ? 'organizers' : '';
+  if (mainTable) {
+    const { data: mainObj } = await supabase.from(mainTable).select('person_id').eq('id', Number(entityId)).maybeSingle();
+    if (mainObj && mainObj.person_id && Number(mainObj.person_id) === Number(personId)) {
+      return true;
+    }
+  }
+
   let table = '';
   let idCol = '';
   if (entityType === 'brand') {
@@ -1731,8 +1768,18 @@ async function getBrandBySlug(slug) {
   const { data, error } = await query.maybeSingle();
   if (error) throw error;
   if (!data) return null;
+
+  const mainPersonId = data.person_id ? Number(data.person_id) : (data.person_brands && data.person_brands.length > 0 ? Number(data.person_brands[0].person_id) : null);
+  const collabList = (data.person_brands && data.person_brands.length > 0)
+    ? data.person_brands.map(pb => ({ personId: Number(pb.person_id), role: pb.role || 'colaborador' }))
+    : (mainPersonId ? [{ personId: mainPersonId, role: 'creador_original' }] : []);
+  const pIds = (data.person_brands && data.person_brands.length > 0)
+    ? data.person_brands.map(pb => Number(pb.person_id))
+    : (mainPersonId ? [mainPersonId] : []);
+
   return {
     id: Number(data.id),
+    personId: mainPersonId,
     name: data.name,
     owner: data.owner,
     category: data.category,
@@ -1740,8 +1787,11 @@ async function getBrandBySlug(slug) {
     logo: data.logo,
     slug: data.slug,
     whatsappNumber: data.whatsapp_number || null,
-    personIds: data.person_brands ? data.person_brands.map(pb => Number(pb.person_id)) : [],
-    collaborators: data.person_brands ? data.person_brands.map(pb => ({ personId: Number(pb.person_id), role: pb.role || 'colaborador' })) : []
+    themeColor: data.theme_color || '',
+    brandDesign: data.brand_design || {},
+    city: data.city || '',
+    personIds: pIds,
+    collaborators: collabList
   };
 }
 
@@ -1763,8 +1813,17 @@ async function getBandBySlug(slug) {
     .select('person_id, role')
     .eq('band_id', Number(data.id));
 
+  const mainPersonId = data.person_id ? Number(data.person_id) : (junctions && junctions.length > 0 ? Number(junctions[0].person_id) : null);
+  const collabList = (junctions && junctions.length > 0)
+    ? junctions.map(j => ({ personId: Number(j.person_id), role: j.role || 'colaborador' }))
+    : (mainPersonId ? [{ personId: mainPersonId, role: 'creador_original' }] : []);
+  const pIds = (junctions && junctions.length > 0)
+    ? junctions.map(j => Number(j.person_id))
+    : (mainPersonId ? [mainPersonId] : []);
+
   return {
     id: Number(data.id),
+    personId: mainPersonId,
     name: data.name,
     genre: data.genre,
     members: Number(data.members),
@@ -1773,8 +1832,8 @@ async function getBandBySlug(slug) {
     mediaLink: data.media_link,
     slug: data.slug,
     gigs: data.gigs || [],
-    personIds: junctions ? junctions.map(j => Number(j.person_id)) : [],
-    collaborators: junctions ? junctions.map(j => ({ personId: Number(j.person_id), role: j.role || 'colaborador' })) : []
+    personIds: pIds,
+    collaborators: collabList
   };
 }
 
@@ -1858,15 +1917,24 @@ async function getOrganizerBySlug(slug) {
     .select('person_id, role')
     .eq('organizer_id', Number(data.id));
 
+  const mainPersonId = data.person_id ? Number(data.person_id) : (junctions && junctions.length > 0 ? Number(junctions[0].person_id) : null);
+  const collabList = (junctions && junctions.length > 0)
+    ? junctions.map(j => ({ personId: Number(j.person_id), role: j.role || 'colaborador' }))
+    : (mainPersonId ? [{ personId: mainPersonId, role: 'creador_original' }] : []);
+  const pIds = (junctions && junctions.length > 0)
+    ? junctions.map(j => Number(j.person_id))
+    : (mainPersonId ? [mainPersonId] : []);
+
   return {
     id: Number(data.id),
+    personId: mainPersonId,
     name: data.name,
     owner: data.owner,
     description: data.description,
     logo: data.logo,
     slug: data.slug || '',
-    personIds: junctions ? junctions.map(j => Number(j.person_id)) : [],
-    collaborators: junctions ? junctions.map(j => ({ personId: Number(j.person_id), role: j.role || 'colaborador' })) : []
+    personIds: pIds,
+    collaborators: collabList
   };
 }
 
