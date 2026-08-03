@@ -33,7 +33,8 @@ const productSchema = z.object({
   category: z.string().min(1, 'La categoría es requerida'),
   brandId: z.preprocess((val) => Number(val), z.number().int().positive('La ID de la marca debe ser válida')),
   image: z.string().optional().nullable(),
-  type: z.string().optional().default('product')
+  type: z.string().optional().default('product'),
+  isVisible: z.boolean().optional().default(true)
 });
 
 const fairSchema = z.object({

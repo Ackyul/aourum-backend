@@ -489,7 +489,7 @@ app.get('/api/products/by-slug/:slug', async (req, res) => {
 
 app.post('/api/products', requireAuth, validate(schemas.productSchema), async (req, res) => {
   try {
-    const { name, description, price, priceAourum, stock, category, brandId, image, type } = req.body;
+    const { name, description, price, priceAourum, stock, category, brandId, image, type, isVisible } = req.body;
     // Verificar que el usuario es creador original de la marca
     const allowed = await isCreatorOriginal(req.user.id, 'brand', brandId);
     if (!allowed) {
@@ -505,6 +505,7 @@ app.post('/api/products', requireAuth, validate(schemas.productSchema), async (r
       brandId,
       type,
       image,
+      isVisible: isVisible !== false
     });
     res.status(201).json(product);
   } catch (error) {
@@ -515,7 +516,7 @@ app.post('/api/products', requireAuth, validate(schemas.productSchema), async (r
 app.put('/api/products/:id', requireAuth, validate(schemas.productSchema), async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, description, price, priceAourum, stock, category, brandId, image, type } = req.body;
+    const { name, description, price, priceAourum, stock, category, brandId, image, type, isVisible } = req.body;
     // Verificar que el usuario es creador original de la marca del producto
     const allowed = await isCreatorOriginal(req.user.id, 'brand', brandId);
     if (!allowed) {
@@ -531,6 +532,7 @@ app.put('/api/products/:id', requireAuth, validate(schemas.productSchema), async
       brandId,
       type,
       image,
+      isVisible: isVisible !== false
     });
     if (!updated) return res.status(404).json({ error: 'Producto o servicio no encontrado' });
     res.json(updated);

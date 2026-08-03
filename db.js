@@ -96,7 +96,8 @@ async function getProducts(options = {}) {
     brandId: p.brand_id ? Number(p.brand_id) : null,
     price: Number(p.price),
     priceAourum: p.price_aourum ? Number(p.price_aourum) : null,
-    slug: p.slug || null
+    slug: p.slug || null,
+    isVisible: p.is_visible !== false
   }));
 
   if (options.paginated) {
@@ -143,7 +144,8 @@ async function addProduct(product) {
       type: product.type || 'product',
       image: product.image || '',
       brand_id: product.brandId ? Number(product.brandId) : null,
-      slug: slug
+      slug: slug,
+      is_visible: product.isVisible !== false
     }])
     .select()
     .single();
@@ -154,7 +156,8 @@ async function addProduct(product) {
     brandId: data.brand_id ? Number(data.brand_id) : null,
     price: Number(data.price),
     priceAourum: data.price_aourum ? Number(data.price_aourum) : null,
-    slug: data.slug || slug
+    slug: data.slug || slug,
+    isVisible: data.is_visible !== false
   };
 }
 
@@ -178,19 +181,22 @@ async function updateProduct(id, updatedProduct) {
     }
   }
 
+  const updatePayload = {
+    name: updatedProduct.name,
+    description: updatedProduct.description || '',
+    price: Number(updatedProduct.price),
+    price_aourum: updatedProduct.priceAourum ? Number(updatedProduct.priceAourum) : null,
+    stock: (updatedProduct.stock === null || updatedProduct.stock === undefined || updatedProduct.stock === '') ? null : Number(updatedProduct.stock),
+    category: cleanCategory,
+    type: updatedProduct.type || 'product',
+    image: updatedProduct.image || '',
+    brand_id: updatedProduct.brandId ? Number(updatedProduct.brandId) : null,
+    is_visible: updatedProduct.isVisible !== false
+  };
+
   const { data, error } = await supabase
     .from('products')
-    .update({
-      name: updatedProduct.name,
-      description: updatedProduct.description || '',
-      price: Number(updatedProduct.price),
-      price_aourum: updatedProduct.priceAourum ? Number(updatedProduct.priceAourum) : null,
-      stock: (updatedProduct.stock === null || updatedProduct.stock === undefined || updatedProduct.stock === '') ? null : Number(updatedProduct.stock),
-      category: cleanCategory,
-      type: updatedProduct.type || 'product',
-      image: updatedProduct.image || '',
-      brand_id: updatedProduct.brandId ? Number(updatedProduct.brandId) : null
-    })
+    .update(updatePayload)
     .eq('id', Number(id))
     .select()
     .single();
@@ -203,7 +209,8 @@ async function updateProduct(id, updatedProduct) {
     ...data,
     brandId: data.brand_id ? Number(data.brand_id) : null,
     price: Number(data.price),
-    priceAourum: data.price_aourum ? Number(data.price_aourum) : null
+    priceAourum: data.price_aourum ? Number(data.price_aourum) : null,
+    isVisible: data.is_visible !== false
   };
 }
 
@@ -1379,7 +1386,8 @@ async function getProductBySlug(slug) {
     brandId: data.brand_id ? Number(data.brand_id) : null,
     price: Number(data.price),
     priceAourum: data.price_aourum ? Number(data.price_aourum) : null,
-    slug: data.slug || null
+    slug: data.slug || null,
+    isVisible: data.is_visible !== false
   };
 }
 
