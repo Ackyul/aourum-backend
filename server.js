@@ -228,7 +228,8 @@ app.use(async (req, res, next) => {
       '/api/brands',
       '/api/organizers',
       '/api/people',
-      '/api/invitations'
+      '/api/invitations',
+      '/api/events'
     ];
     
     const isCacheable = cacheableRoutes.some(route => req.path.startsWith(route));
@@ -277,6 +278,8 @@ app.use((req, res, next) => {
           clearCache('people').catch(err => console.error(err));
         } else if (req.path.startsWith('/api/invitations')) {
           clearCache('invitations').catch(err => console.error(err));
+        } else if (req.path.startsWith('/api/events')) {
+          clearCache('events').catch(err => console.error(err));
         } else if (req.path.includes('/collaborators')) {
           clearCache(['brands', 'organizers', 'bands']).catch(err => console.error(err));
         }
@@ -552,6 +555,108 @@ app.delete('/api/products/:id', requireAuth, async (req, res) => {
     const success = await db.deleteProduct(req.params.id);
     if (!success) return res.status(404).json({ error: 'Producto o servicio no encontrado' });
     res.json({ message: 'Producto/Servicio eliminado con éxito' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ── EVENTOS (CURSOS, TALLERES Y PRESENTACIONES) ──
+
+app.get('/api/events', async (req, res) => {
+  try {
+    const { brandId, isActive, isFeatured } = req.query;
+    const events = await db.getEvents({
+      brandId: brandId ? Number(brandId) : undefined,
+      isActive: isActive !== undefined ? isActive === 'true' : undefined,
+      isFeatured: isFeatured !== undefined ? isFeatured === 'true' : undefined,
+    });
+    res.json(events);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/events/by-slug/:slug', async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const event = await db.getEventBySlug(slug);
+    if (!event) return res.status(404).json({ error: 'Evento no encontrado' });
+    res.json(event);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/events/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const event = await db.getEventById(id);
+    if (!event) return res.status(404).json({ error: 'Evento no encontrado' });
+    res.json(event);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/events', requireAuth, validate(schemas.eventSchema), async (req, res) => {
+  try {
+    const { brandId } = req.body;
+    const brands = await db.getBrands();
+    const b = brands.find(item => Number(item.id) === Number(brandId));
+    if (!b) return res.status(404).json({ error: 'Marca no encontrada.' });
+    if (Number(b.personId) !== Number(req.user.id)) {
+      const isCollab = await db.isCollaborator(req.user.id, 'brand', brandId);
+      if (!isCollab) {
+        return res.status(403).json({ error: 'No tienes permiso para agregar eventos a esta marca.' });
+      }
+    }
+    const newEvent = await db.addEvent(req.body);
+    res.status(201).json(newEvent);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/events/:id', requireAuth, validate(schemas.eventSchema), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const existing = await db.getEventById(id);
+    if (!existing) return res.status(404).json({ error: 'Evento no encontrado' });
+
+    const brands = await db.getBrands();
+    const b = brands.find(item => Number(item.id) === Number(existing.brandId));
+    if (!b) return res.status(404).json({ error: 'Marca no encontrada.' });
+    if (Number(b.personId) !== Number(req.user.id)) {
+      const isCollab = await db.isCollaborator(req.user.id, 'brand', existing.brandId);
+      if (!isCollab) {
+        return res.status(403).json({ error: 'No tienes permiso para editar eventos de esta marca.' });
+      }
+    }
+    const updated = await db.updateEvent(id, req.body);
+    res.json(updated);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/events/:id', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const existing = await db.getEventById(id);
+    if (!existing) return res.status(404).json({ error: 'Evento no encontrado' });
+
+    const brands = await db.getBrands();
+    const b = brands.find(item => Number(item.id) === Number(existing.brandId));
+    if (b && Number(b.personId) !== Number(req.user.id)) {
+      const isCollab = await db.isCollaborator(req.user.id, 'brand', existing.brandId);
+      if (!isCollab) {
+        return res.status(403).json({ error: 'No tienes permiso para eliminar eventos de esta marca.' });
+      }
+    }
+
+    const success = await db.deleteEvent(id);
+    if (!success) return res.status(404).json({ error: 'No se pudo eliminar el evento' });
+    res.json({ message: 'Evento eliminado con éxito' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

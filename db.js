@@ -2401,6 +2401,201 @@ async function reportPost(id) {
 
   const newReportsCount = (Number(post.reports_count) || 0) + 1;
   let newStatus = post.status || 'approved';
+async function deletePostComment(postId, commentId, personId) {
+  const pId = Number(personId);
+  const { data: rawPost, error: fetchErr } = await supabase
+    .from('posts')
+    .select('id, content, person_id')
+    .eq('id', Number(postId))
+    .maybeSingle();
+
+  if (fetchErr || !rawPost) throw new Error('Publicación no encontrada');
+
+  let metaObj = { fairId: null, brandId: null, organizerId: null, authorType: 'person', likes: [], comments: [] };
+  let mainContent = rawPost.content || '';
+
+  const metaMatch = mainContent.match(/^\[AOURUM_POST_META:(.*?)\]:\s*/);
+  if (metaMatch) {
+    try {
+      metaObj = { ...metaObj, ...JSON.parse(metaMatch[1]) };
+      mainContent = mainContent.replace(metaMatch[0], '');
+    } catch (e) {}
+  }
+
+  if (!Array.isArray(metaObj.comments)) metaObj.comments = [];
+
+  const isPostOwner = Number(rawPost.person_id) === pId;
+  const initialLen = metaObj.comments.length;
+  metaObj.comments = metaObj.comments.filter(c => {
+    if (c.id === commentId) {
+      if (Number(c.personId) === pId || isPostOwner) return false;
+    }
+    return true;
+  });
+
+  if (metaObj.comments.length === initialLen) {
+    throw new Error('No tienes permiso para eliminar este comentario');
+  }
+
+  const updatedFormatted = `[AOURUM_POST_META:${JSON.stringify(metaObj)}]: ${mainContent}`;
+  const { error: updateErr } = await supabase
+    .from('posts')
+    .update({ content: updatedFormatted })
+    .eq('id', Number(postId));
+
+  if (updateErr) throw updateErr;
+
+  return { comments: metaObj.comments, commentsCount: metaObj.comments.length };
+}
+
+async function getPosts(options = {}) {
+  const page = Number(options.page) || 1;
+  const limit = Number(options.limit) || 50;
+  const from = (page - 1) * limit;
+  const to = from + limit - 1;
+
+  const [postsRes, brands, fairs, organizers] = await Promise.all([
+    supabase
+      .from('posts')
+      .select(`
+        id,
+        content,
+        image,
+        created_at,
+        person_id,
+        status,
+        people:person_id (
+          id,
+          name,
+          last_name,
+          username,
+          logo,
+          occupation
+        )
+      `, { count: 'exact' })
+      .or('status.eq.approved,status.is.null')
+      .order('created_at', { ascending: false }),
+    getBrands(),
+    getFairs(),
+    getOrganizers()
+  ]);
+
+  if (postsRes.error) throw postsRes.error;
+
+  let items = (postsRes.data || []).map(post => parsePostData(post, brands, fairs, organizers));
+
+  if (options.fairId) {
+    items = items.filter(p => Number(p.fairId) === Number(options.fairId));
+  }
+  if (options.brandId) {
+    items = items.filter(p => Number(p.brandId) === Number(options.brandId));
+  }
+  if (options.personId) {
+    items = items.filter(p => Number(p.personId) === Number(options.personId));
+  }
+
+  const totalCount = items.length;
+  const paginated = items.slice(from, to + 1);
+
+  return { items: paginated, count: totalCount, page, limit };
+}
+
+async function getActivityFeed(options = {}) {
+  return getPosts(options);
+}
+
+async function getPostById(id) {
+  const { data, error } = await supabase
+    .from('posts')
+    .select(`
+      id,
+      content,
+      image,
+      created_at,
+      person_id,
+      status,
+      people:person_id (
+        id,
+        name,
+        last_name,
+        username,
+        logo,
+        occupation
+      )
+    `)
+    .eq('id', Number(id))
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+  const [brands, fairs, organizers] = await Promise.all([getBrands(), getFairs(), getOrganizers()]);
+  return parsePostData(data, brands, fairs, organizers);
+}
+
+async function addPost(post) {
+  const metaObj = {
+    fairId: post.fairId ? Number(post.fairId) : null,
+    brandId: post.brandId ? Number(post.brandId) : null,
+    organizerId: post.organizerId ? Number(post.organizerId) : null,
+    authorType: post.authorType || 'person'
+  };
+
+  const formattedContent = `[AOURUM_POST_META:${JSON.stringify(metaObj)}]: ${post.content}`;
+
+  const { data, error } = await supabase
+    .from('posts')
+    .insert([{
+      person_id: Number(post.personId),
+      content: formattedContent,
+      image: post.image || null,
+      status: 'approved'
+    }])
+    .select(`
+      id,
+      content,
+      image,
+      created_at,
+      person_id,
+      status,
+      people:person_id (
+        id,
+        name,
+        last_name,
+        username,
+        logo,
+        occupation
+      )
+    `)
+    .single();
+
+  if (error) throw error;
+  const [brands, fairs, organizers] = await Promise.all([getBrands(), getFairs(), getOrganizers()]);
+  return parsePostData(data, brands, fairs, organizers);
+}
+
+async function deletePost(id) {
+  const { data, error } = await supabase
+    .from('posts')
+    .delete()
+    .eq('id', Number(id))
+    .select();
+
+  if (error) throw error;
+  return data && data.length > 0;
+}
+
+async function reportPost(id) {
+  const { data: post, error: fetchError } = await supabase
+    .from('posts')
+    .select('reports_count, status')
+    .eq('id', Number(id))
+    .maybeSingle();
+
+  if (fetchError) throw fetchError;
+  if (!post) return null;
+
+  const newReportsCount = (Number(post.reports_count) || 0) + 1;
+  let newStatus = post.status || 'approved';
 
   if (newReportsCount >= 3) {
     newStatus = 'flagged';
@@ -2420,4 +2615,162 @@ async function reportPost(id) {
   return data;
 }
 
+// ─── EVENTS ───────────────────────────────────────────────────────────────────
 
+function mapEvent(e) {
+  return {
+    id: Number(e.id),
+    brandId: e.brand_id ? Number(e.brand_id) : null,
+    title: e.title,
+    description: e.description || '',
+    eventType: e.event_type || 'curso',
+    eventDate: e.event_date,
+    durationMinutes: e.duration_minutes ? Number(e.duration_minutes) : null,
+    location: e.location || null,
+    isOnline: e.is_online || false,
+    onlineLink: e.online_link || null,
+    price: e.price !== null && e.price !== undefined ? Number(e.price) : null,
+    currency: e.currency || 'ARS',
+    spotsTotal: e.spots_total ? Number(e.spots_total) : null,
+    spotsRemaining: e.spots_remaining !== null && e.spots_remaining !== undefined ? Number(e.spots_remaining) : null,
+    image: e.image || null,
+    isActive: e.is_active !== false,
+    isFeatured: e.is_featured || false,
+    slug: e.slug || null,
+    createdAt: e.created_at,
+    updatedAt: e.updated_at,
+  };
+}
+
+async function getEvents(options = {}) {
+  let query = supabase.from('events').select('*');
+
+  if (options.brandId) {
+    query = query.eq('brand_id', Number(options.brandId));
+  }
+  if (options.isActive !== undefined) {
+    query = query.eq('is_active', options.isActive);
+  }
+  if (options.isFeatured !== undefined) {
+    query = query.eq('is_featured', options.isFeatured);
+  }
+
+  query = query.order('event_date', { ascending: true });
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data || []).map(mapEvent);
+}
+
+async function getEventById(id) {
+  const { data, error } = await supabase
+    .from('events')
+    .select('*')
+    .eq('id', Number(id))
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  return mapEvent(data);
+}
+
+async function getEventBySlug(slug) {
+  const { data, error } = await supabase
+    .from('events')
+    .select('*')
+    .eq('slug', slug)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  return mapEvent(data);
+}
+
+async function addEvent(event) {
+  const slug = await generateUniqueSlug('events', event.title);
+  const spotsRemaining = (event.spotsRemaining !== undefined && event.spotsRemaining !== null)
+    ? Number(event.spotsRemaining)
+    : (event.spotsTotal ? Number(event.spotsTotal) : null);
+
+  const { data, error } = await supabase
+    .from('events')
+    .insert([{
+      brand_id: Number(event.brandId),
+      title: event.title,
+      description: event.description || '',
+      event_type: event.eventType || 'curso',
+      event_date: event.eventDate,
+      duration_minutes: event.durationMinutes ? Number(event.durationMinutes) : null,
+      location: event.location || null,
+      is_online: event.isOnline || false,
+      online_link: event.onlineLink || null,
+      price: (event.price !== null && event.price !== undefined) ? Number(event.price) : null,
+      currency: event.currency || 'ARS',
+      spots_total: event.spotsTotal ? Number(event.spotsTotal) : null,
+      spots_remaining: spotsRemaining,
+      image: event.image || null,
+      is_active: event.isActive !== false,
+      is_featured: event.isFeatured || false,
+      slug: slug,
+    }])
+    .select()
+    .single();
+
+  if (error) throw error;
+  return mapEvent(data);
+}
+
+async function updateEvent(id, updatedEvent) {
+  const updatePayload = {};
+  if (updatedEvent.title !== undefined) updatePayload.title = updatedEvent.title;
+  if (updatedEvent.description !== undefined) updatePayload.description = updatedEvent.description;
+  if (updatedEvent.eventType !== undefined) updatePayload.event_type = updatedEvent.eventType;
+  if (updatedEvent.eventDate !== undefined) updatePayload.event_date = updatedEvent.eventDate;
+  if (updatedEvent.durationMinutes !== undefined) updatePayload.duration_minutes = updatedEvent.durationMinutes ? Number(updatedEvent.durationMinutes) : null;
+  if (updatedEvent.location !== undefined) updatePayload.location = updatedEvent.location || null;
+  if (updatedEvent.isOnline !== undefined) updatePayload.is_online = updatedEvent.isOnline;
+  if (updatedEvent.onlineLink !== undefined) updatePayload.online_link = updatedEvent.onlineLink || null;
+  if (updatedEvent.price !== undefined) updatePayload.price = updatedEvent.price !== null ? Number(updatedEvent.price) : null;
+  if (updatedEvent.currency !== undefined) updatePayload.currency = updatedEvent.currency;
+  if (updatedEvent.spotsTotal !== undefined) updatePayload.spots_total = updatedEvent.spotsTotal ? Number(updatedEvent.spotsTotal) : null;
+  if (updatedEvent.spotsRemaining !== undefined) updatePayload.spots_remaining = updatedEvent.spotsRemaining !== null ? Number(updatedEvent.spotsRemaining) : null;
+  if (updatedEvent.image !== undefined) updatePayload.image = updatedEvent.image || null;
+  if (updatedEvent.isActive !== undefined) updatePayload.is_active = updatedEvent.isActive;
+  if (updatedEvent.isFeatured !== undefined) updatePayload.is_featured = updatedEvent.isFeatured;
+  updatePayload.updated_at = new Date().toISOString();
+
+  const { data, error } = await supabase
+    .from('events')
+    .update(updatePayload)
+    .eq('id', Number(id))
+    .select()
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw error;
+  }
+  return mapEvent(data);
+}
+
+async function deleteEvent(id) {
+  const { data, error } = await supabase
+    .from('events')
+    .delete()
+    .eq('id', Number(id))
+    .select();
+
+  if (error) throw error;
+  return data && data.length > 0;
+}
+
+module.exports = {
+  getProducts, addProduct, updateProduct, deleteProduct, getProductById, getProductBySlug,
+  getFairs, addFair, updateFair, deleteFair, applyToBrandFair, applyToBandFair,
+  getBands, addBand, updateBand, deleteBand,
+  getBrands, addBrand, updateBrand, deleteBrand,
+  getPeople, addPerson, updatePerson, deletePerson, getPersonById,
+  getOrganizers, addOrganizer, updateOrganizer, deleteOrganizer,
+  getPosts, getPostById, addPost, deletePost, reportPost, togglePostLike, addComment, getComments,
+  getActivityFeed,
+  isCollaborator, addCollaborator, changeCollaboratorRole, removeCollaborator,
+  getEvents, getEventById, getEventBySlug, addEvent, updateEvent, deleteEvent,
+};

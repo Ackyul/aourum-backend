@@ -108,6 +108,25 @@ const postSchema = z.object({
   authorType: z.enum(['person', 'brand', 'organizer']).optional().default('person')
 });
 
+const eventSchema = z.object({
+  title: z.string().min(1, 'El título es requerido').max(200),
+  description: z.string().optional().default(''),
+  eventType: z.enum(['curso', 'taller', 'presentacion', 'feria', 'otro']).default('curso'),
+  eventDate: z.string().min(1, 'La fecha del evento es requerida'),
+  durationMinutes: z.preprocess((val) => (val === null || val === undefined || val === '') ? null : Number(val), z.number().int().positive().nullable().optional()),
+  location: z.string().optional().nullable(),
+  isOnline: z.boolean().optional().default(false),
+  onlineLink: z.string().optional().nullable(),
+  price: z.preprocess((val) => (val === null || val === undefined || val === '') ? null : Number(val), z.number().nonnegative().nullable().optional()),
+  currency: z.string().optional().default('ARS'),
+  spotsTotal: z.preprocess((val) => (val === null || val === undefined || val === '') ? null : Number(val), z.number().int().positive().nullable().optional()),
+  spotsRemaining: z.preprocess((val) => (val === null || val === undefined || val === '') ? null : Number(val), z.number().int().nonnegative().nullable().optional()),
+  image: z.string().optional().nullable(),
+  isActive: z.boolean().optional().default(true),
+  isFeatured: z.boolean().optional().default(false),
+  brandId: z.preprocess((val) => Number(val), z.number().int().positive('La ID de la marca debe ser válida')),
+});
+
 module.exports = {
   registerSchema,
   loginSchema,
@@ -118,5 +137,6 @@ module.exports = {
   brandSchema,
   organizerSchema,
   profileUpdateSchema,
-  postSchema
+  postSchema,
+  eventSchema
 };
