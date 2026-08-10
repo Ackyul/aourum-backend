@@ -5,10 +5,13 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 
 if (!supabaseUrl || !supabaseKey) {
-  console.error('ERROR: SUPABASE_URL and SUPABASE_KEY must be set in environment variables.');
+  console.error('❌ FATAL: SUPABASE_URL y SUPABASE_KEY deben estar configurados en las variables de entorno de Render/servidor.');
 }
 
-const supabase = createClient(supabaseUrl, supabaseKey);
+const supabase = createClient(
+  supabaseUrl || 'https://placeholder.supabase.co',
+  supabaseKey || 'placeholder-key'
+);
 
 function slugifyUsername(name) {
   if (!name) return 'user_' + Math.floor(Math.random() * 10000);
@@ -1963,66 +1966,6 @@ async function getOrganizerBySlug(slug) {
   };
 }
 
-module.exports = {
-  getProducts,
-  getProductById,
-  getProductBySlug,
-  getBrandBySlug,
-  getBandBySlug,
-  getFairBySlug,
-  getOrganizerBySlug,
-  addProduct,
-  updateProduct,
-  deleteProduct,
-  getFairs,
-  getFairById,
-  addFair,
-  updateFair,
-  deleteFair,
-  respondToFairApplication,
-  getBands,
-  getBandById,
-  addBand,
-  updateBand,
-  deleteBand,
-  getBrands,
-  getBrandById,
-  addBrand,
-  updateBrand,
-  deleteBrand,
-  getOrganizers,
-  getOrganizerById,
-  addOrganizer,
-  updateOrganizer,
-  deleteOrganizer,
-  getPeople,
-  getPersonById,
-  getPersonByEmail,
-  getPersonByUsername,
-  getPersonByGoogleId,
-  getPersonByFacebookId,
-  addPerson,
-  updatePerson,
-  deletePerson,
-  applyToFair,
-  getInvitations,
-  addInvitation,
-  respondToInvitation,
-  updateCollaboratorRole,
-  removeCollaborator,
-  isSlugUnique,
-  isCollaborator,
-  isCreatorOriginal,
-  getActivityFeed,
-  getPosts,
-  getPostById,
-  addPost,
-  deletePost,
-  reportPost,
-  togglePostLike,
-  addPostComment,
-  deletePostComment
-};
 
 function parsePostData(rawPost, brands = [], fairs = [], organizers = []) {
   let content = rawPost.content || '';
@@ -2401,201 +2344,6 @@ async function reportPost(id) {
 
   const newReportsCount = (Number(post.reports_count) || 0) + 1;
   let newStatus = post.status || 'approved';
-async function deletePostComment(postId, commentId, personId) {
-  const pId = Number(personId);
-  const { data: rawPost, error: fetchErr } = await supabase
-    .from('posts')
-    .select('id, content, person_id')
-    .eq('id', Number(postId))
-    .maybeSingle();
-
-  if (fetchErr || !rawPost) throw new Error('Publicación no encontrada');
-
-  let metaObj = { fairId: null, brandId: null, organizerId: null, authorType: 'person', likes: [], comments: [] };
-  let mainContent = rawPost.content || '';
-
-  const metaMatch = mainContent.match(/^\[AOURUM_POST_META:(.*?)\]:\s*/);
-  if (metaMatch) {
-    try {
-      metaObj = { ...metaObj, ...JSON.parse(metaMatch[1]) };
-      mainContent = mainContent.replace(metaMatch[0], '');
-    } catch (e) {}
-  }
-
-  if (!Array.isArray(metaObj.comments)) metaObj.comments = [];
-
-  const isPostOwner = Number(rawPost.person_id) === pId;
-  const initialLen = metaObj.comments.length;
-  metaObj.comments = metaObj.comments.filter(c => {
-    if (c.id === commentId) {
-      if (Number(c.personId) === pId || isPostOwner) return false;
-    }
-    return true;
-  });
-
-  if (metaObj.comments.length === initialLen) {
-    throw new Error('No tienes permiso para eliminar este comentario');
-  }
-
-  const updatedFormatted = `[AOURUM_POST_META:${JSON.stringify(metaObj)}]: ${mainContent}`;
-  const { error: updateErr } = await supabase
-    .from('posts')
-    .update({ content: updatedFormatted })
-    .eq('id', Number(postId));
-
-  if (updateErr) throw updateErr;
-
-  return { comments: metaObj.comments, commentsCount: metaObj.comments.length };
-}
-
-async function getPosts(options = {}) {
-  const page = Number(options.page) || 1;
-  const limit = Number(options.limit) || 50;
-  const from = (page - 1) * limit;
-  const to = from + limit - 1;
-
-  const [postsRes, brands, fairs, organizers] = await Promise.all([
-    supabase
-      .from('posts')
-      .select(`
-        id,
-        content,
-        image,
-        created_at,
-        person_id,
-        status,
-        people:person_id (
-          id,
-          name,
-          last_name,
-          username,
-          logo,
-          occupation
-        )
-      `, { count: 'exact' })
-      .or('status.eq.approved,status.is.null')
-      .order('created_at', { ascending: false }),
-    getBrands(),
-    getFairs(),
-    getOrganizers()
-  ]);
-
-  if (postsRes.error) throw postsRes.error;
-
-  let items = (postsRes.data || []).map(post => parsePostData(post, brands, fairs, organizers));
-
-  if (options.fairId) {
-    items = items.filter(p => Number(p.fairId) === Number(options.fairId));
-  }
-  if (options.brandId) {
-    items = items.filter(p => Number(p.brandId) === Number(options.brandId));
-  }
-  if (options.personId) {
-    items = items.filter(p => Number(p.personId) === Number(options.personId));
-  }
-
-  const totalCount = items.length;
-  const paginated = items.slice(from, to + 1);
-
-  return { items: paginated, count: totalCount, page, limit };
-}
-
-async function getActivityFeed(options = {}) {
-  return getPosts(options);
-}
-
-async function getPostById(id) {
-  const { data, error } = await supabase
-    .from('posts')
-    .select(`
-      id,
-      content,
-      image,
-      created_at,
-      person_id,
-      status,
-      people:person_id (
-        id,
-        name,
-        last_name,
-        username,
-        logo,
-        occupation
-      )
-    `)
-    .eq('id', Number(id))
-    .maybeSingle();
-
-  if (error) throw error;
-  if (!data) return null;
-  const [brands, fairs, organizers] = await Promise.all([getBrands(), getFairs(), getOrganizers()]);
-  return parsePostData(data, brands, fairs, organizers);
-}
-
-async function addPost(post) {
-  const metaObj = {
-    fairId: post.fairId ? Number(post.fairId) : null,
-    brandId: post.brandId ? Number(post.brandId) : null,
-    organizerId: post.organizerId ? Number(post.organizerId) : null,
-    authorType: post.authorType || 'person'
-  };
-
-  const formattedContent = `[AOURUM_POST_META:${JSON.stringify(metaObj)}]: ${post.content}`;
-
-  const { data, error } = await supabase
-    .from('posts')
-    .insert([{
-      person_id: Number(post.personId),
-      content: formattedContent,
-      image: post.image || null,
-      status: 'approved'
-    }])
-    .select(`
-      id,
-      content,
-      image,
-      created_at,
-      person_id,
-      status,
-      people:person_id (
-        id,
-        name,
-        last_name,
-        username,
-        logo,
-        occupation
-      )
-    `)
-    .single();
-
-  if (error) throw error;
-  const [brands, fairs, organizers] = await Promise.all([getBrands(), getFairs(), getOrganizers()]);
-  return parsePostData(data, brands, fairs, organizers);
-}
-
-async function deletePost(id) {
-  const { data, error } = await supabase
-    .from('posts')
-    .delete()
-    .eq('id', Number(id))
-    .select();
-
-  if (error) throw error;
-  return data && data.length > 0;
-}
-
-async function reportPost(id) {
-  const { data: post, error: fetchError } = await supabase
-    .from('posts')
-    .select('reports_count, status')
-    .eq('id', Number(id))
-    .maybeSingle();
-
-  if (fetchError) throw fetchError;
-  if (!post) return null;
-
-  const newReportsCount = (Number(post.reports_count) || 0) + 1;
-  let newStatus = post.status || 'approved';
 
   if (newReportsCount >= 3) {
     newStatus = 'flagged';
@@ -2764,13 +2512,12 @@ async function deleteEvent(id) {
 
 module.exports = {
   getProducts, addProduct, updateProduct, deleteProduct, getProductById, getProductBySlug,
-  getFairs, addFair, updateFair, deleteFair, applyToBrandFair, applyToBandFair,
-  getBands, addBand, updateBand, deleteBand,
-  getBrands, addBrand, updateBrand, deleteBrand,
-  getPeople, addPerson, updatePerson, deletePerson, getPersonById,
-  getOrganizers, addOrganizer, updateOrganizer, deleteOrganizer,
-  getPosts, getPostById, addPost, deletePost, reportPost, togglePostLike, addComment, getComments,
-  getActivityFeed,
-  isCollaborator, addCollaborator, changeCollaboratorRole, removeCollaborator,
-  getEvents, getEventById, getEventBySlug, addEvent, updateEvent, deleteEvent,
+  getFairs, getFairById, getFairBySlug, addFair, updateFair, deleteFair, applyToFair, respondToFairApplication,
+  getBands, getBandById, getBandBySlug, addBand, updateBand, deleteBand,
+  getBrands, getBrandById, getBrandBySlug, addBrand, updateBrand, deleteBrand,
+  getOrganizers, getOrganizerById, getOrganizerBySlug, addOrganizer, updateOrganizer, deleteOrganizer,
+  getPeople, getPersonById, getPersonByEmail, getPersonByUsername, getPersonByGoogleId, getPersonByFacebookId, addPerson, updatePerson, deletePerson,
+  getInvitations, addInvitation, respondToInvitation, updateCollaboratorRole, removeCollaborator, isSlugUnique, isCollaborator, isCreatorOriginal,
+  getPosts, getPostById, addPost, deletePost, reportPost, togglePostLike, addPostComment, deletePostComment, getActivityFeed,
+  getEvents, getEventById, getEventBySlug, addEvent, updateEvent, deleteEvent
 };
