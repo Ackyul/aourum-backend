@@ -4,6 +4,7 @@
   "description": "Backend de AOURUM para conectar ferias, feriantes y bandas",
   "main": "server.js",
   "scripts": {
+    "build": "echo 'Backend listo'",
     "start": "node server.js",
     "dev": "nodemon server.js"
   },
