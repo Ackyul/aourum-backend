@@ -611,6 +611,57 @@ app.post('/api/events', requireAuth, validate(schemas.eventSchema), async (req, 
       }
     }
     const newEvent = await db.addEvent(req.body);
+
+    // Auto-publicar anuncio del evento en el Muro de Novedades
+    try {
+      let eventTypeName = 'Evento';
+      if (newEvent.eventType === 'taller') eventTypeName = 'Taller';
+      else if (newEvent.eventType === 'curso') eventTypeName = 'Curso';
+      else if (newEvent.eventType === 'concierto') eventTypeName = 'Concierto';
+      else if (newEvent.eventType === 'presentacion') eventTypeName = 'Presentación';
+
+      let eventDateFormatted = '';
+      if (newEvent.eventDate) {
+        try {
+          const d = new Date(newEvent.eventDate);
+          if (!isNaN(d.getTime())) {
+            eventDateFormatted = d.toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+          } else {
+            eventDateFormatted = newEvent.eventDate;
+          }
+        } catch (e) {
+          eventDateFormatted = newEvent.eventDate;
+        }
+      }
+
+      let postText = `📢 ¡Nuevo ${eventTypeName} anunciado: "${newEvent.title}"! 🎉\n\n`;
+      if (eventDateFormatted) postText += `🗓️ Fecha: ${eventDateFormatted}\n`;
+      if (newEvent.location) postText += `📍 Lugar: ${newEvent.location}\n`;
+      else if (newEvent.isOnline) postText += `🌐 Modalidad: Online / Virtual\n`;
+
+      if (newEvent.price !== null && newEvent.price !== undefined) {
+        postText += `💰 Precio: ${newEvent.price > 0 ? `${newEvent.currency || 'ARS'} $${newEvent.price}` : 'Gratuito'}\n`;
+      }
+      if (newEvent.description) {
+        const cleanDesc = newEvent.description.trim();
+        if (cleanDesc) {
+          postText += `\n${cleanDesc.substring(0, 300)}${cleanDesc.length > 300 ? '...' : ''}`;
+        }
+      }
+
+      let postImage = newEvent.image || b.logo || null;
+
+      await db.addPost({
+        personId: req.user.id,
+        brandId: b.id,
+        authorType: 'brand',
+        content: postText,
+        image: postImage
+      });
+    } catch (postErr) {
+      console.error('⚠️ Error al auto-publicar el anuncio del evento en el muro:', postErr.message);
+    }
+
     res.status(201).json(newEvent);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -864,6 +915,34 @@ app.post('/api/fairs', requireAuth, validate(schemas.fairSchema), async (req, re
       lng,
       organizerId
     });
+
+    // Auto-publicar anuncio de la feria en el Muro de Novedades
+    try {
+      let postText = `🎪 ¡Nueva Feria anunciada: "${fair.name}"! 🎉\n\n`;
+      if (fair.date) postText += `🗓️ Fecha: ${fair.date}\n`;
+      if (fair.time) postText += `⏰ Horario: ${fair.time}\n`;
+      if (fair.location) postText += `📍 Lugar: ${fair.location}\n`;
+      if (fair.description) {
+        const cleanDesc = fair.description.trim();
+        if (cleanDesc) {
+          postText += `\n${cleanDesc.substring(0, 300)}${cleanDesc.length > 300 ? '...' : ''}`;
+        }
+      }
+
+      let postBanner = fair.banner || null;
+
+      await db.addPost({
+        personId: req.user.id,
+        organizerId: organizerId,
+        fairId: fair.id,
+        authorType: 'organizer',
+        content: postText,
+        image: postBanner
+      });
+    } catch (postErr) {
+      console.error('⚠️ Error al auto-publicar el anuncio de la feria en el muro:', postErr.message);
+    }
+
     res.status(201).json(fair);
   } catch (error) {
     res.status(500).json({ error: error.message });
