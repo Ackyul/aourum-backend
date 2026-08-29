@@ -2087,28 +2087,32 @@ app.delete('/api/:entityType/:id/collaborators/:personId', requireAuth, async (r
   }
 });
 
-const server = app.listen(PORT, () => {
-  console.log(`✅ AOURUM API corriendo en http://localhost:${PORT}`);
-  if (!process.env.CLOUDINARY_CLOUD_NAME) {
-    console.warn('⚠️  ADVERTENCIA: Variables de Cloudinary no encontradas. Crea el archivo .env');
-  }
-});
-
-const gracefulShutdown = (signal) => {
-  console.log(`\n🛑 Recibida señal ${signal}. Cerrando servidor Express limpiamente...`);
-  server.close(() => {
-    console.log('✅ Servidor Express cerrado.');
-    process.exit(0);
+if (require.main === module) {
+  const server = app.listen(PORT, () => {
+    console.log(`✅ AOURUM API corriendo en http://localhost:${PORT}`);
+    if (!process.env.CLOUDINARY_CLOUD_NAME) {
+      console.warn('⚠️ ADVERTENCIA: Variables de Cloudinary no encontradas.');
+    }
   });
 
-  setTimeout(() => {
-    console.error('⚠️  Cierre forzado por tiempo de espera excedido');
-    process.exit(1);
-  }, 10000);
-};
+  const gracefulShutdown = (signal) => {
+    console.log(`\n🛑 Recibida señal ${signal}. Cerrando servidor Express limpiamente...`);
+    server.close(() => {
+      console.log('✅ Servidor Express cerrado.');
+      process.exit(0);
+    });
 
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+    setTimeout(() => {
+      console.error('⚠️ Cierre forzado por tiempo de espera excedido');
+      process.exit(1);
+    }, 10000);
+  };
+
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+}
+
+module.exports = app;
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('❌ Unhandled Rejection en Promise:', reason);
