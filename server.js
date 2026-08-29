@@ -636,16 +636,26 @@ app.post('/api/events', requireAuth, validate(schemas.eventSchema), async (req, 
 
       let postText = `📢 ¡Nuevo ${eventTypeName} anunciado: "${newEvent.title}"! 🎉\n\n`;
       if (eventDateFormatted) postText += `🗓️ Fecha: ${eventDateFormatted}\n`;
-      if (newEvent.location) postText += `📍 Lugar: ${newEvent.location}\n`;
-      else if (newEvent.isOnline) postText += `🌐 Modalidad: Online / Virtual\n`;
+
+      if (newEvent.isOnline) {
+        postText += `🌐 Modalidad: Online / Virtual\n`;
+        if (newEvent.onlineLink) {
+          postText += `💬 Solicitar información por WhatsApp:\n${newEvent.onlineLink}\n`;
+        }
+      } else {
+        if (newEvent.location) postText += `📍 Lugar: ${newEvent.location}\n`;
+        if (newEvent.lat && newEvent.lng) {
+          postText += `🗺️ Ubicación en Mapa:\nhttps://www.google.com/maps/search/?api=1&query=${newEvent.lat},${newEvent.lng}\n`;
+        }
+      }
 
       if (newEvent.price !== null && newEvent.price !== undefined) {
-        postText += `💰 Precio: ${newEvent.price > 0 ? `${newEvent.currency || 'ARS'} $${newEvent.price}` : 'Gratuito'}\n`;
+        postText += `💰 Precio: ${newEvent.price > 0 ? `${newEvent.currency || 'ARS'} $${newEvent.price}` : 'Gratuito / Entrada Libre'}\n`;
       }
       if (newEvent.description) {
         const cleanDesc = newEvent.description.trim();
         if (cleanDesc) {
-          postText += `\n${cleanDesc.substring(0, 300)}${cleanDesc.length > 300 ? '...' : ''}`;
+          postText += `\n${cleanDesc.substring(0, 350)}${cleanDesc.length > 350 ? '...' : ''}`;
         }
       }
 

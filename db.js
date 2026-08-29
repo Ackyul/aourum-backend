@@ -2366,6 +2366,19 @@ async function reportPost(id) {
 // ─── EVENTS ───────────────────────────────────────────────────────────────────
 
 function mapEvent(e) {
+  let lat = e.lat ? Number(e.lat) : null;
+  let lng = e.lng ? Number(e.lng) : null;
+
+  let locationStr = e.location || '';
+  if (locationStr && locationStr.includes('[lat:')) {
+    const match = locationStr.match(/\[lat:([\d.-]+),lng:([\d.-]+)\]/);
+    if (match) {
+      lat = parseFloat(match[1]);
+      lng = parseFloat(match[2]);
+      locationStr = locationStr.replace(match[0], '').trim();
+    }
+  }
+
   return {
     id: Number(e.id),
     brandId: e.brand_id ? Number(e.brand_id) : null,
@@ -2374,9 +2387,12 @@ function mapEvent(e) {
     eventType: e.event_type || 'curso',
     eventDate: e.event_date,
     durationMinutes: e.duration_minutes ? Number(e.duration_minutes) : null,
-    location: e.location || null,
+    location: locationStr || null,
+    lat: lat,
+    lng: lng,
     isOnline: e.is_online || false,
     onlineLink: e.online_link || null,
+    whatsappNumber: e.whatsapp_number || (e.online_link && e.online_link.includes('wa.me') ? e.online_link : null),
     price: e.price !== null && e.price !== undefined ? Number(e.price) : null,
     currency: e.currency || 'ARS',
     spotsTotal: e.spots_total ? Number(e.spots_total) : null,
@@ -2438,6 +2454,11 @@ async function addEvent(event) {
     ? Number(event.spotsRemaining)
     : (event.spotsTotal ? Number(event.spotsTotal) : null);
 
+  let locationPayload = event.location || null;
+  if (locationPayload && event.lat && event.lng) {
+    locationPayload = `${locationPayload} [lat:${event.lat},lng:${event.lng}]`;
+  }
+
   const { data, error } = await supabase
     .from('events')
     .insert([{
@@ -2447,9 +2468,9 @@ async function addEvent(event) {
       event_type: event.eventType || 'curso',
       event_date: event.eventDate,
       duration_minutes: event.durationMinutes ? Number(event.durationMinutes) : null,
-      location: event.location || null,
+      location: locationPayload,
       is_online: event.isOnline || false,
-      online_link: event.onlineLink || null,
+      online_link: event.onlineLink || event.whatsappNumber || null,
       price: (event.price !== null && event.price !== undefined) ? Number(event.price) : null,
       currency: event.currency || 'ARS',
       spots_total: event.spotsTotal ? Number(event.spotsTotal) : null,
@@ -2473,9 +2494,15 @@ async function updateEvent(id, updatedEvent) {
   if (updatedEvent.eventType !== undefined) updatePayload.event_type = updatedEvent.eventType;
   if (updatedEvent.eventDate !== undefined) updatePayload.event_date = updatedEvent.eventDate;
   if (updatedEvent.durationMinutes !== undefined) updatePayload.duration_minutes = updatedEvent.durationMinutes ? Number(updatedEvent.durationMinutes) : null;
-  if (updatedEvent.location !== undefined) updatePayload.location = updatedEvent.location || null;
+  if (updatedEvent.location !== undefined) {
+    let loc = updatedEvent.location || '';
+    if (loc && updatedEvent.lat && updatedEvent.lng) {
+      loc = `${loc} [lat:${updatedEvent.lat},lng:${updatedEvent.lng}]`;
+    }
+    updatePayload.location = loc || null;
+  }
   if (updatedEvent.isOnline !== undefined) updatePayload.is_online = updatedEvent.isOnline;
-  if (updatedEvent.onlineLink !== undefined) updatePayload.online_link = updatedEvent.onlineLink || null;
+  if (updatedEvent.onlineLink !== undefined) updatePayload.online_link = updatedEvent.onlineLink || updatedEvent.whatsappNumber || null;
   if (updatedEvent.price !== undefined) updatePayload.price = updatedEvent.price !== null ? Number(updatedEvent.price) : null;
   if (updatedEvent.currency !== undefined) updatePayload.currency = updatedEvent.currency;
   if (updatedEvent.spotsTotal !== undefined) updatePayload.spots_total = updatedEvent.spotsTotal ? Number(updatedEvent.spotsTotal) : null;
