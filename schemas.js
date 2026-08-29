@@ -111,7 +111,7 @@ const postSchema = z.object({
 const eventSchema = z.object({
   title: z.string().min(1, 'El título es requerido').max(200),
   description: z.string().optional().default(''),
-  eventType: z.enum(['curso', 'taller', 'presentacion', 'feria', 'otro']).default('curso'),
+  eventType: z.enum(['curso', 'taller', 'evento', 'presentacion', 'feria', 'otro']).default('curso'),
   eventDate: z.string().min(1, 'La fecha del evento es requerida'),
   durationMinutes: z.preprocess((val) => (val === null || val === undefined || val === '') ? null : Number(val), z.number().int().positive().nullable().optional()),
   location: z.string().optional().nullable(),

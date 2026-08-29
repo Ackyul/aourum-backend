@@ -617,6 +617,7 @@ app.post('/api/events', requireAuth, validate(schemas.eventSchema), async (req, 
       let eventTypeName = 'Evento';
       if (newEvent.eventType === 'taller') eventTypeName = 'Taller';
       else if (newEvent.eventType === 'curso') eventTypeName = 'Curso';
+      else if (newEvent.eventType === 'evento') eventTypeName = 'Evento';
       else if (newEvent.eventType === 'concierto') eventTypeName = 'Concierto';
       else if (newEvent.eventType === 'presentacion') eventTypeName = 'Presentación';
 
