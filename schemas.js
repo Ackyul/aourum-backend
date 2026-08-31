@@ -72,6 +72,7 @@ const brandSchema = z.object({
   slug: z.string().optional(),
   whatsappNumber: z.string().optional().nullable(),
   themeColor: z.string().optional().nullable(),
+  catalogDisplayMode: z.enum(['auto', 'grid', 'menu']).optional().default('auto'),
   brandDesign: z.record(z.any()).optional().default({}),
   city: z.string().optional().nullable()
 }).passthrough();

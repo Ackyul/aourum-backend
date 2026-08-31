@@ -517,12 +517,14 @@ async function getBrands(options = {}) {
   }
   return items;
 }
-
 async function addBrand(brand) {
   const personId = brand.personId ? Number(brand.personId) : null;
   const slug = await generateUniqueSlug('brands', brand.name);
   const defaultThemeColor = brand.themeColor || '#D4AF37';
-  const defaultDesign = brand.brandDesign || { customBgColor: '#FAF9F0', bgStyle: 'solid', logoShape: 'circle', cardStyle: 'glass', fontFamily: 'Inter' };
+  const defaultCatalogDisplayMode = brand.catalogDisplayMode || (brand.brandDesign && brand.brandDesign.catalogDisplayMode) || 'auto';
+  const defaultDesign = brand.brandDesign 
+    ? { catalogDisplayMode: defaultCatalogDisplayMode, ...brand.brandDesign } 
+    : { customBgColor: '#FAF9F0', bgStyle: 'solid', logoShape: 'circle', cardStyle: 'glass', fontFamily: 'Inter', catalogDisplayMode: defaultCatalogDisplayMode };
 
   let descPayload = brand.description || '';
   if (!descPayload || !descPayload.startsWith('{')) {
@@ -533,6 +535,7 @@ async function addBrand(brand) {
       tagline: '',
       customBgColor: defaultDesign.customBgColor || '#FAF9F0',
       bgStyle: defaultDesign.bgStyle || 'solid',
+      catalogDisplayMode: defaultCatalogDisplayMode,
       brandDesign: defaultDesign
     });
   }
@@ -599,8 +602,12 @@ async function updateBrand(id, updatedBrand) {
   if (updatedBrand.themeColor !== undefined) {
     updateFields.theme_color = updatedBrand.themeColor || '';
   }
-  if (updatedBrand.brandDesign !== undefined) {
-    updateFields.brand_design = updatedBrand.brandDesign || {};
+  if (updatedBrand.brandDesign !== undefined || updatedBrand.catalogDisplayMode !== undefined) {
+    const designPayload = updatedBrand.brandDesign ? { ...updatedBrand.brandDesign } : {};
+    if (updatedBrand.catalogDisplayMode !== undefined) {
+      designPayload.catalogDisplayMode = updatedBrand.catalogDisplayMode;
+    }
+    updateFields.brand_design = designPayload;
   }
   if (updatedBrand.city !== undefined) {
     updateFields.city = updatedBrand.city || '';
