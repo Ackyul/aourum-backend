@@ -462,7 +462,7 @@ app.post('/api/remove-bg-ai', requireAuth, aiLimiter, async (req, res) => {
 
 app.get('/api/products', async (req, res) => {
   try {
-    const { page, limit, category, brandId, search } = req.query;
+    const { page, limit, category, brandId, search, type, sort } = req.query;
     const paginated = (page !== undefined || limit !== undefined);
     const result = await db.getProducts({
       page,
@@ -470,6 +470,8 @@ app.get('/api/products', async (req, res) => {
       category,
       brandId,
       search,
+      type,
+      sort,
       paginated
     });
     res.json(result);
@@ -483,6 +485,9 @@ app.get('/api/products/by-slug/:slug', async (req, res) => {
     const { slug } = req.params;
     const product = await db.getProductBySlug(slug);
     if (!product) return res.status(404).json({ error: 'Producto no encontrado' });
+    if (product.id && db.incrementProductViews) {
+      db.incrementProductViews(product.id).catch(err => console.error(err));
+    }
     res.json(product);
   } catch (error) {
     res.status(500).json({ error: error.message });

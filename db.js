@@ -78,7 +78,13 @@ async function getProducts(options = {}) {
     query = query.ilike('name', `%${options.search}%`);
   }
 
-  query = query.order('id', { ascending: false });
+  if (options.sort === 'most_viewed' || options.sort === 'views') {
+    query = query.order('views', { ascending: false, nullsFirst: false }).order('id', { ascending: false });
+  } else if (options.sort === 'discover') {
+    query = query.order('views', { ascending: true, nullsFirst: true }).order('id', { ascending: false });
+  } else {
+    query = query.order('id', { ascending: false });
+  }
 
   if (options.page && options.limit) {
     const page = Number(options.page);
@@ -100,6 +106,7 @@ async function getProducts(options = {}) {
     price: Number(p.price),
     priceAourum: p.price_aourum ? Number(p.price_aourum) : null,
     slug: p.slug || null,
+    views: Number(p.views || p.view_count || 0),
     isVisible: p.is_visible !== false
   }));
 
@@ -2544,8 +2551,25 @@ async function deleteEvent(id) {
   return data && data.length > 0;
 }
 
+async function incrementProductViews(id) {
+  try {
+    const { data: prod } = await supabase.from('products').select('views').eq('id', Number(id)).single();
+    const currentViews = prod ? (Number(prod.views) || 0) : 0;
+    const { data, error } = await supabase
+      .from('products')
+      .update({ views: currentViews + 1 })
+      .eq('id', Number(id))
+      .select()
+      .single();
+    return data;
+  } catch (err) {
+    console.error('Error al incrementar vistas del producto:', err);
+    return null;
+  }
+}
+
 module.exports = {
-  getProducts, addProduct, updateProduct, deleteProduct, getProductById, getProductBySlug,
+  getProducts, addProduct, updateProduct, deleteProduct, getProductById, getProductBySlug, incrementProductViews,
   getFairs, getFairById, getFairBySlug, addFair, updateFair, deleteFair, applyToFair, respondToFairApplication,
   getBands, getBandById, getBandBySlug, addBand, updateBand, deleteBand,
   getBrands, getBrandById, getBrandBySlug, addBrand, updateBrand, deleteBrand,
