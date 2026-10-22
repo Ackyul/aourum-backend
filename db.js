@@ -559,8 +559,7 @@ async function addBrand(brand) {
       whatsapp_number: brand.whatsappNumber || null,
       theme_color: defaultThemeColor,
       brand_design: defaultDesign,
-      city: brand.city || '',
-      person_id: personId || null
+      city: brand.city || ''
     }])
     .select()
     .single();
