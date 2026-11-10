@@ -565,6 +565,87 @@ app.delete('/api/products/:id', requireAuth, async (req, res) => {
   }
 });
 
+
+
+// ── CARRITO SINCRONIZADO EN LA NUBE (MULTI-DISPOSITIVO) ──
+
+app.get('/api/cart', optionalAuth, async (req, res) => {
+  try {
+    const userId = req.user?.id || req.query.userId;
+    if (!userId) {
+      return res.json({ items: [] });
+    }
+    const items = await db.getUserCart(userId);
+    res.json({ items: items || [] });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/cart', optionalAuth, async (req, res) => {
+  try {
+    const userId = req.user?.id || req.body.userId;
+    if (!userId) {
+      return res.status(400).json({ error: 'Usuario requerido para sincronizar en la nube' });
+    }
+    const items = Array.isArray(req.body.items) ? req.body.items : [];
+    const saved = await db.saveUserCart(userId, items);
+    res.json({ success: true, items: saved });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ── REGISTRO Y GESTIÓN DE PEDIDOS (WHATSAPP TRACKING & DASHBOARD) ──
+
+app.post('/api/orders', optionalAuth, async (req, res) => {
+  try {
+    const { brandId, brandName, clientName, deliveryAddress, notes, items, subtotal } = req.body;
+    const personId = req.user?.id || req.body.personId || null;
+    
+    if (!brandId || !items || !items.length) {
+      return res.status(400).json({ error: 'Datos incompletos para registrar el pedido' });
+    }
+
+    const order = await db.addOrder({
+      personId,
+      brandId,
+      brandName,
+      clientName: clientName || (req.user ? req.user.name : 'Cliente'),
+      deliveryAddress: deliveryAddress || '',
+      notes: notes || '',
+      items,
+      subtotal: Number(subtotal) || 0,
+      status: 'whatsapp_sent'
+    });
+
+    res.json({ success: true, order });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/orders', optionalAuth, async (req, res) => {
+  try {
+    const userId = req.user?.id || req.query.userId;
+    const brandId = req.query.brandId;
+
+    if (brandId) {
+      const orders = await db.getOrdersByBrand(brandId);
+      return res.json({ orders });
+    }
+
+    if (userId) {
+      const orders = await db.getOrdersByUser(userId);
+      return res.json({ orders });
+    }
+
+    res.json({ orders: [] });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ── EVENTOS (CURSOS, TALLERES Y PRESENTACIONES) ──
 
 app.get('/api/events', async (req, res) => {
@@ -1548,6 +1629,17 @@ app.post('/api/auth/reset-password', validate(schemas.resetPasswordSchema), asyn
 });
 
 // Middleware de autenticación
+function optionalAuth(req, res, next) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.split(' ')[1];
+      req.user = jwt.verify(token, JWT_SECRET);
+    }
+  } catch (e) {}
+  next();
+}
+
 function requireAuth(req, res, next) {
   try {
     const authHeader = req.headers.authorization;

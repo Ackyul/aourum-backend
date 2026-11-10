@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 
@@ -1389,11 +1391,18 @@ async function getProductById(id) {
 
 async function getProductBySlug(slug) {
   if (!slug) return null;
-  const { data, error } = await supabase
-    .from('products')
-    .select('*')
-    .eq('slug', slug)
-    .maybeSingle();
+  const isNumeric = /^\d+$/.test(String(slug).trim());
+  let query = supabase.from('products').select('*');
+  if (isNumeric) {
+    query = query.or(`slug.eq.${slug},id.eq.${slug}`);
+  } else {
+    query = query.eq('slug', slug);
+  }
+  let { data, error } = await query.maybeSingle();
+  if (error || !data) {
+    const fallback = await supabase.from('products').select('*').eq('slug', slug).maybeSingle();
+    data = fallback.data;
+  }
 
   if (error) throw error;
   if (!data) return null;
@@ -2567,6 +2576,168 @@ async function incrementProductViews(id) {
   }
 }
 
+
+// ── CARRITO Y PEDIDOS CON PERSISTENCIA RESILIENTE (SUPABASE + DISCO/MEMORIA) ──
+const dataDir = path.join(__dirname, 'data');
+try {
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
+} catch (e) {}
+
+const memCarts = new Map();
+const memOrders = [];
+
+async function getUserCart(userId) {
+  if (!userId) return [];
+  try {
+    const { data, error } = await supabase
+      .from('user_carts')
+      .select('items')
+      .eq('user_id', Number(userId))
+      .maybeSingle();
+    if (!error && data && Array.isArray(data.items)) {
+      return data.items;
+    }
+  } catch (err) {}
+
+  if (memCarts.has(Number(userId))) {
+    return memCarts.get(Number(userId));
+  }
+  const filePath = path.join(dataDir, 'user_carts.json');
+  try {
+    if (fs.existsSync(filePath)) {
+      const all = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      if (all[userId]) {
+        memCarts.set(Number(userId), all[userId]);
+        return all[userId];
+      }
+    }
+  } catch (e) {}
+  return [];
+}
+
+async function saveUserCart(userId, items) {
+  if (!userId) return [];
+  const cleanItems = Array.isArray(items) ? items : [];
+  memCarts.set(Number(userId), cleanItems);
+
+  try {
+    const { error } = await supabase
+      .from('user_carts')
+      .upsert({ user_id: Number(userId), items: cleanItems, updated_at: new Date().toISOString() });
+    if (!error) return cleanItems;
+  } catch (err) {}
+
+  const filePath = path.join(dataDir, 'user_carts.json');
+  try {
+    let all = {};
+    if (fs.existsSync(filePath)) {
+      all = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    }
+    all[userId] = cleanItems;
+    fs.writeFileSync(filePath, JSON.stringify(all, null, 2), 'utf8');
+  } catch (e) {}
+
+  return cleanItems;
+}
+
+async function addOrder(orderData) {
+  const orderId = orderData.id || ('ORD-' + Date.now().toString(36).toUpperCase() + '-' + Math.floor(Math.random() * 900 + 100));
+  const record = {
+    id: orderId,
+    personId: orderData.personId ? Number(orderData.personId) : null,
+    brandId: orderData.brandId ? Number(orderData.brandId) : null,
+    brandName: orderData.brandName || '',
+    clientName: orderData.clientName || '',
+    deliveryAddress: orderData.deliveryAddress || '',
+    notes: orderData.notes || '',
+    items: Array.isArray(orderData.items) ? orderData.items : [],
+    subtotal: Number(orderData.subtotal) || 0,
+    status: orderData.status || 'whatsapp_sent',
+    createdAt: new Date().toISOString()
+  };
+
+  try {
+    const { data, error } = await supabase
+      .from('orders')
+      .insert([{
+        id: record.id,
+        person_id: record.personId,
+        brand_id: record.brandId,
+        brand_name: record.brandName,
+        client_name: record.clientName,
+        delivery_address: record.deliveryAddress,
+        notes: record.notes,
+        items: record.items,
+        subtotal: record.subtotal,
+        status: record.status
+      }])
+      .select()
+      .single();
+    if (!error && data) {
+      memOrders.unshift(record);
+      return record;
+    }
+  } catch (err) {}
+
+  memOrders.unshift(record);
+  const filePath = path.join(dataDir, 'orders.json');
+  try {
+    let all = [];
+    if (fs.existsSync(filePath)) {
+      all = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    }
+    all.unshift(record);
+    if (all.length > 500) all = all.slice(0, 500);
+    fs.writeFileSync(filePath, JSON.stringify(all, null, 2), 'utf8');
+  } catch (e) {}
+
+  return record;
+}
+
+async function getOrdersByUser(userId) {
+  if (!userId) return [];
+  try {
+    const { data, error } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('person_id', Number(userId))
+      .order('created_at', { ascending: false });
+    if (!error && data) return data;
+  } catch (e) {}
+
+  const filePath = path.join(dataDir, 'orders.json');
+  try {
+    if (fs.existsSync(filePath)) {
+      const all = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      return all.filter(o => Number(o.personId) === Number(userId));
+    }
+  } catch (e) {}
+  return memOrders.filter(o => Number(o.personId) === Number(userId));
+}
+
+async function getOrdersByBrand(brandId) {
+  if (!brandId) return [];
+  try {
+    const { data, error } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('brand_id', Number(brandId))
+      .order('created_at', { ascending: false });
+    if (!error && data) return data;
+  } catch (e) {}
+
+  const filePath = path.join(dataDir, 'orders.json');
+  try {
+    if (fs.existsSync(filePath)) {
+      const all = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      return all.filter(o => Number(o.brandId) === Number(brandId));
+    }
+  } catch (e) {}
+  return memOrders.filter(o => Number(o.brandId) === Number(brandId));
+}
+
 module.exports = {
   getProducts, addProduct, updateProduct, deleteProduct, getProductById, getProductBySlug, incrementProductViews,
   getFairs, getFairById, getFairBySlug, addFair, updateFair, deleteFair, applyToFair, respondToFairApplication,
@@ -2576,5 +2747,6 @@ module.exports = {
   getPeople, getPersonById, getPersonByEmail, getPersonByUsername, getPersonByGoogleId, getPersonByFacebookId, addPerson, updatePerson, deletePerson,
   getInvitations, addInvitation, respondToInvitation, updateCollaboratorRole, removeCollaborator, isSlugUnique, isCollaborator, isCreatorOriginal,
   getPosts, getPostById, addPost, deletePost, reportPost, togglePostLike, addPostComment, deletePostComment, getActivityFeed,
-  getEvents, getEventById, getEventBySlug, addEvent, updateEvent, deleteEvent
+  getEvents, getEventById, getEventBySlug, addEvent, updateEvent, deleteEvent,
+  getUserCart, saveUserCart, addOrder, getOrdersByUser, getOrdersByBrand
 };
